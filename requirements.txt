@@ -1,0 +1,6 @@
+google-adk
+litellm
+pydantic
+numpy
+google-cloud-aiplatform[adk,agent_engines]>=1.111
+cloudpickle
