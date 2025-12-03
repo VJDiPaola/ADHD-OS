@@ -34,6 +34,23 @@ To start the ADHD-OS system:
 python -m adhd_os.main
 ```
 
+### Running the Dashboard
+
+To visualize your data (Energy, Tasks, History):
+
+1.  **Start the Backend**:
+    ```bash
+    python -m adhd_os.dashboard.backend
+    ```
+
+2.  **Start the Frontend** (in a separate terminal):
+    ```bash
+    cd adhd_os/dashboard/frontend
+    npm run dev
+    ```
+
+3.  Open `http://localhost:5173` in your browser.
+
 ## Features
 
 - **Infrastructure Optimizations**: Deterministic machines for body doubling and focus timers, semantic caching for task decomposition, and dynamic state management.
