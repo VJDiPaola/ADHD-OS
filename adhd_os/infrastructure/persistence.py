@@ -34,8 +34,7 @@ class SqliteSessionService(BaseSessionService):
             user_id=user_id,
             state=state or {},
             events=[],
-            created_time=now,
-            last_update_time=now
+            last_update_time=now.timestamp()
         )
         
         with DB._get_conn() as conn:
@@ -79,15 +78,23 @@ class SqliteSessionService(BaseSessionService):
                     data=json.loads(e_row[1]),
                     timestamp=datetime.fromisoformat(e_row[2]) if isinstance(e_row[2], str) else e_row[2]
                 ))
-                
+            
+            # last_updated_at from DB is timestamp string or datetime, convert to float
+            last_update = row[3]
+            if isinstance(last_update, str):
+                last_update_ts = datetime.fromisoformat(last_update).timestamp()
+            elif isinstance(last_update, datetime):
+                last_update_ts = last_update.timestamp()
+            else:
+                last_update_ts = float(last_update)
+
             return Session(
                 id=session_id,
                 app_name=row[1],
                 user_id=row[0],
                 state=json.loads(row[4]),
                 events=events,
-                created_time=datetime.fromisoformat(row[2]) if isinstance(row[2], str) else row[2],
-                last_update_time=datetime.fromisoformat(row[3]) if isinstance(row[3], str) else row[3]
+                last_update_time=last_update_ts
             )
             
     async def list_sessions(self, app_name: str, user_id: str) -> Any:

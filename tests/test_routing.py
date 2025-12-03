@@ -41,21 +41,20 @@ async def test_routing():
         # For this simple eval, we'll check if the response *sounds* like the agent.
         # Ideally, we'd inspect the trace, but ADK runner hides that a bit.
         
-        response = await runner.run_async(
+        # Iterate over the async generator
+        async for response in runner.run_async(
             user_id="test_user",
             session_id=session.id,
             new_message=user_input
-        )
-        
-        print(f"Response: {response.content[:100]}...")
-        
-        # In a real test, we'd check the 'agent_name' in the trace if available.
-        # For now, we just ensure we got a response.
-        if response and response.content:
-            print("Response received")
-            passed += 1
-        else:
-            print("No response")
+        ):
+            print(f"Response: {response.content[:100]}...")
+            
+            # In a real test, we'd check the 'agent_name' in the trace if available.
+            # For now, we just ensure we got a response.
+            if response and response.content:
+                print("Response received")
+                passed += 1
+                break # Just take the first response for this test
             
     print(f"\nResult: {passed}/{len(test_cases)} tests passed.")
 
