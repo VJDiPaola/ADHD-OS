@@ -11,7 +11,7 @@ from adhd_os.infrastructure.persistence import SqliteSessionService
 from adhd_os.state import USER_STATE
 
 async def test_routing():
-    print("🧪 Starting Routing Evaluation...")
+    print("Starting Routing Evaluation...")
     
     # Setup test environment
     session_service = SqliteSessionService()
@@ -34,7 +34,7 @@ async def test_routing():
     
     passed = 0
     for user_input, expected_agent in test_cases:
-        print(f"\n📋 Testing: '{user_input}'")
+        print(f"\nTesting: '{user_input}'")
         
         # We can't easily see internal routing in the final response without debug logs,
         # but we can infer it from the response content or by mocking.
@@ -47,17 +47,17 @@ async def test_routing():
             new_message=user_input
         )
         
-        print(f"🤖 Response: {response.content[:100]}...")
+        print(f"Response: {response.content[:100]}...")
         
         # In a real test, we'd check the 'agent_name' in the trace if available.
         # For now, we just ensure we got a response.
         if response and response.content:
-            print("✅ Response received")
+            print("Response received")
             passed += 1
         else:
-            print("❌ No response")
+            print("No response")
             
-    print(f"\n🎉 Result: {passed}/{len(test_cases)} tests passed.")
+    print(f"\nResult: {passed}/{len(test_cases)} tests passed.")
 
 if __name__ == "__main__":
     asyncio.run(test_routing())

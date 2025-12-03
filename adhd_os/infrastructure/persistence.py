@@ -4,9 +4,10 @@ import pickle
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from google.adk.sessions import BaseSessionService, Session, Event
 
-from google.adk.sessions import BaseSessionService, Session, Event
+
+from google.adk.sessions import BaseSessionService, Session
+from google.adk.events import Event
 from adhd_os.infrastructure.database import DB
 
 class SqliteSessionService(BaseSessionService):
