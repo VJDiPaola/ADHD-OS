@@ -46,6 +46,7 @@ async def test_routing():
             ("How long will this take?", "time_calibrator_agent"),
             ("I'm worried I'll fail", "catastrophe_check_agent"),
             ("I feel rejected", "rsd_shield_agent"),
+            ("Review my plan to build a rocket", "reflector_agent"),
         ]
         
         passed = 0

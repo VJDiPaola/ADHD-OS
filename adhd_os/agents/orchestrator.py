@@ -16,6 +16,7 @@ from adhd_os.agents.temporal import (
 from adhd_os.agents.emotional import (
     catastrophe_agent, rsd_agent, motivation_agent
 )
+from adhd_os.agents.reflector import reflector_agent
 
 session_summarizer = LlmAgent(
     name="session_summarizer",
@@ -66,6 +67,9 @@ orchestrator = LlmAgent(
     - "schedule", "calendar", "when should" → calendar_agent
     - "focus session", "hyperfocus", "guardrail" → focus_timer_agent
     
+    REFLECTOR CLUSTER (planning & critique):
+    - "review", "critique", "what am i missing", "sanity check", "plan check" → reflector_agent
+    
     EMOTIONAL CLUSTER (regulation):
     - worry, anxiety, "disaster", "fail" → catastrophe_check_agent
     - "hate me", "rejected", "criticized" → rsd_shield_agent
@@ -102,6 +106,9 @@ orchestrator = LlmAgent(
         time_calibrator_agent,
         calendar_agent,
         focus_timer_agent,
+        
+        # Reflector Cluster
+        reflector_agent,
         
         # Emotional Cluster
         catastrophe_agent,

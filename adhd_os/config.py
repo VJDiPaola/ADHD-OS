@@ -15,6 +15,7 @@ MODELS = {
     "temporal": "gemini-2.0-flash",
     "motivation": "gemini-2.0-flash",
     "pattern_analysis": "gemini-2.0-pro",
+    "reflector_agent": "gemini-2.0-flash", # Added Reflector
 }
 
 def get_model(role: str, mode: ModelMode = ModelMode.PRODUCTION) -> str:

@@ -37,7 +37,9 @@ python -m adhd_os.main
 ## Features
 
 - **Infrastructure Optimizations**: Deterministic machines for body doubling and focus timers, semantic caching for task decomposition, and dynamic state management.
-- **Full Agent Roster**: 9 specialist agents including Task Initiation, Decomposer, Body Double, Time Calibrator, Calendar, Focus Timer, Catastrophe Check, RSD Shield, and Motivation.
+- **Full Agent Roster**: 10 specialist agents including Task Initiation, Decomposer, Body Double, Time Calibrator, Calendar, Focus Timer, Catastrophe Check, RSD Shield, Motivation, and **Reflector**.
+- **Robust Persistence**: SQLite-based storage (`adhd_os.db`) for user state, sessions, and task history.
+- **Observability**: Structured JSON logging (`logs/adhd_os.jsonl`) for analytics and debugging.
 - **Async Patterns**: Proper async event bus and structured outputs.
 - **Emotional Support**: Warm emotional support with CBT guardrails.
 
@@ -55,15 +57,17 @@ python -m adhd_os.main
     docker run -it \
       -e GOOGLE_API_KEY=your_key \
       -e ANTHROPIC_API_KEY=your_key \
-      -v $(pwd)/sessions:/app/sessions \
+      -v $(pwd)/adhd_os.db:/app/adhd_os.db \
+      -v $(pwd)/logs:/app/logs \
       adhd-os
     ```
 
 ### Persistence
 
-The system now uses file-based persistence by default. Sessions are saved to the `sessions/` directory.
-- In Docker, mount a volume to `/app/sessions` to persist data across restarts.
-- Locally, data is saved to `sessions/` in the project root.
+The system uses a local SQLite database (`adhd_os.db`) for persistence.
+- **User State**: Energy levels, multipliers, and preferences are saved automatically.
+- **Sessions**: Chat history and context are preserved across restarts.
+- **Logs**: Structured logs are written to `logs/adhd_os.jsonl`.
 
 ### Vertex AI Agent Engine
 
