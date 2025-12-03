@@ -33,3 +33,10 @@ venv.bak/
 # IDEs
 .vscode/
 .idea/
+
+# Project specific
+adhd_os.db
+logs/
+node_modules/
+dist/
+.DS_Store
