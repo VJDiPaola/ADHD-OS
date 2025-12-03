@@ -66,6 +66,17 @@ class DatabaseManager:
                     timestamp TIMESTAMP
                 )
             """)
+
+            # Task Cache Table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS task_cache (
+                    hash TEXT PRIMARY KEY,
+                    task_description TEXT,
+                    plan_json TEXT,
+                    energy_level INTEGER,
+                    created_at TIMESTAMP
+                )
+            """)
             
             conn.commit()
     
@@ -87,6 +98,33 @@ class DatabaseManager:
             if row:
                 return json.loads(row[0])
             return default
+
+    # --- Task Cache Methods ---
+
+    def get_cached_plan(self, task_hash: str) -> Optional[Dict]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT plan_json FROM task_cache WHERE hash = ?", 
+                (task_hash,)
+            )
+            row = cursor.fetchone()
+            return json.loads(row[0]) if row else None
+
+    def cache_plan(self, task_hash: str, description: str, plan_json: str, energy: int):
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO task_cache (hash, task_description, plan_json, energy_level, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (task_hash, description, plan_json, energy, datetime.now())
+            )
+
+    def get_similar_tasks(self, keywords: List[str]) -> List[str]:
+        # Simple fetch all for now
+        with self._get_conn() as conn:
+            cursor = conn.execute("SELECT task_description FROM task_cache")
+            return [r[0] for r in cursor.fetchall()]
 
     # --- Task History Methods ---
     

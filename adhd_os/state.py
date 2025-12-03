@@ -89,22 +89,22 @@ class UserState:
         # Load persistent config
         self.base_multiplier = DB.get_state("base_multiplier", 1.5)
         self.peak_window_hours = tuple(DB.get_state("peak_window_hours", [1, 5]))
-        
-        # Load last known energy (optional, maybe we want this fresh each time?)
-        # For now, let's keep energy ephemeral as it changes daily.
+        self.current_task = DB.get_state("current_task", None)
+        self.energy_level = int(DB.get_state("energy_level", 5))
         
     def save_to_db(self):
         """Saves persistent state to database."""
         from adhd_os.infrastructure.database import DB
         DB.save_state("base_multiplier", self.base_multiplier)
         DB.save_state("peak_window_hours", list(self.peak_window_hours))
+        if self.current_task:
+            DB.save_state("current_task", self.current_task)
+        DB.save_state("energy_level", self.energy_level)
 
     def get_task_type_multiplier(self, task_type: str) -> Optional[float]:
         """Returns learned multiplier from DB."""
         from adhd_os.infrastructure.database import DB
         return DB.get_task_multiplier(task_type)
-    
-    def log_task_completion(self, task_type: str, estimated: int, actual: int):
         """Logs task completion to DB."""
         from adhd_os.infrastructure.database import DB
         

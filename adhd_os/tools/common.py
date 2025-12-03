@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 from google.adk.tools import FunctionTool
 
@@ -119,6 +119,18 @@ def check_task_cache(task_description: str) -> Dict:
     }
 
 @FunctionTool
+def store_task_decomposition(task_description: str, plan_json: Dict) -> Dict:
+    """Stores a decomposition plan in the semantic cache."""
+    from adhd_os.models.schemas import DecompositionPlan
+    try:
+        # Validate plan structure
+        plan = DecompositionPlan(**plan_json)
+        TASK_CACHE.store_with_energy(task_description, plan, USER_STATE.energy_level)
+        return {"stored": True, "message": "Plan cached successfully."}
+    except Exception as e:
+        return {"stored": False, "error": str(e)}
+
+@FunctionTool
 def log_task_completion(task_type: str, estimated_minutes: int, actual_minutes: int) -> Dict:
     """Logs task completion for calibration learning."""
     USER_STATE.log_task_completion(task_type, estimated_minutes, actual_minutes)
@@ -184,3 +196,60 @@ def schedule_checkin(minutes_from_now: int, message: str) -> Dict:
         "time": checkin_time.strftime("%H:%M"),
         "message": message
     }
+
+@FunctionTool
+def get_recent_history(limit: int = 50) -> List[Dict]:
+    """Retrieves recent task history for pattern analysis."""
+    from adhd_os.infrastructure.database import DB
+    with DB._get_conn() as conn:
+        cursor = conn.execute(
+            """
+            SELECT task_type, estimated_minutes, actual_minutes, energy_level, in_peak_window, timestamp 
+            FROM task_history 
+            ORDER BY timestamp DESC LIMIT ?
+            """,
+            (limit,)
+        )
+        rows = cursor.fetchall()
+        return [
+            {
+                "type": r[0],
+                "est": r[1],
+                "act": r[2],
+                "energy": r[3],
+                "peak": bool(r[4]),
+                "date": r[5][:10]
+            }
+            for r in rows
+        ]
+
+@FunctionTool
+def safe_list_dir(path: str = ".") -> List[str]:
+    """Lists files in the project directory (read-only)."""
+    import os
+    base_path = os.getcwd()
+    target_path = os.path.abspath(os.path.join(base_path, path))
+    
+    if not target_path.startswith(base_path):
+        return ["Error: Access denied. Stay within project root."]
+    
+    try:
+        return os.listdir(target_path)
+    except Exception as e:
+        return [f"Error: {str(e)}"]
+
+@FunctionTool
+def safe_read_file(path: str) -> str:
+    """Reads a file from the project directory (read-only)."""
+    import os
+    base_path = os.getcwd()
+    target_path = os.path.abspath(os.path.join(base_path, path))
+    
+    if not target_path.startswith(base_path):
+        return "Error: Access denied. Stay within project root."
+    
+    try:
+        with open(target_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        return f"Error: {str(e)}"

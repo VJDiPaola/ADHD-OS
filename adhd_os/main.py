@@ -20,10 +20,29 @@ async def run_adhd_os():
     
     # Initialize session with persistence
     session_service = SqliteSessionService()
-    session = await session_service.create_session(
-        app_name="adhd_os",
-        user_id=USER_STATE.user_id
-    )
+    
+    # Context Recovery
+    session = None
+    recent = await session_service.list_sessions("adhd_os", USER_STATE.user_id)
+    if recent:
+        last_session = await session_service.get_session("adhd_os", USER_STATE.user_id, recent[0]["id"])
+        if last_session:
+            last_active = datetime.fromtimestamp(last_session.last_update_time)
+            if (datetime.now() - last_active).total_seconds() < 43200: # 12 hours
+                print(f"\n👋 Welcome back! Last active: {last_active.strftime('%H:%M')}")
+                if USER_STATE.current_task:
+                    print(f"   You were working on: {USER_STATE.current_task}")
+                
+                resume = input("   Resume this session? (Y/n): ").strip().lower()
+                if resume != 'n':
+                    session = last_session
+                    print("   Resuming previous session...")
+
+    if not session:
+        session = await session_service.create_session(
+            app_name="adhd_os",
+            user_id=USER_STATE.user_id
+        )
     
     # Initialize runner
     runner = Runner(
@@ -60,6 +79,20 @@ async def run_adhd_os():
             print(f" [PATTERN] Task took {ratio:.1f}x longer than estimated. Adjusting multiplier...")
     
     EVENT_BUS.subscribe(EventType.TASK_COMPLETED, on_task_completed)
+
+    # Desktop Notifications
+    try:
+        from plyer import notification
+        def send_notification(data):
+            notification.notify(
+                title="ADHD-OS Check-in",
+                message=f"{data.get('task', 'Focus')}: Check-in {data.get('checkin_number', 0)}",
+                app_name="ADHD-OS",
+                timeout=10
+            )
+        EVENT_BUS.subscribe(EventType.CHECKIN_DUE, send_notification)
+    except ImportError:
+        logger.warning("plyer not installed - notifications disabled")
     
     while True:
         try:
@@ -86,6 +119,17 @@ async def run_adhd_os():
                 print(" Session saved. Work mode complete!")
                 break
             
+            # Safety / Crisis Check
+            CRISIS_KEYWORDS = ["suicide", "kill myself", "want to die", "end it all", "self harm"]
+            if any(k in user_input.lower() for k in CRISIS_KEYWORDS):
+                print("\n🚨 SAFETY INTERVENTION")
+                print("It sounds like you're in a lot of pain. I'm an AI, but there are people who can help right now.")
+                print("Please reach out to:")
+                print("  - 988 Suicide & Crisis Lifeline (Call/Text 988)")
+                print("  - Crisis Text Line: Text HOME to 741741")
+                print("  - Emergency Services: 911")
+                continue
+
             # Process through orchestrator
             async for response in runner.run_async(
                 user_id=USER_STATE.user_id,

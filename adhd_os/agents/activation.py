@@ -5,7 +5,7 @@ from adhd_os.config import MODELS, get_model, MODEL_MODE
 from adhd_os.tools.common import (
     get_user_state, get_current_time, log_activation_attempt,
     check_task_cache, apply_time_calibration, activate_body_double,
-    get_body_double_status
+    get_body_double_status, store_task_decomposition
 )
 
 task_init_agent = LlmAgent(
@@ -109,7 +109,7 @@ decomposer_agent = LlmAgent(
     For high energy (≥8): Can use slightly larger chunks.
     """,
     
-    tools=[get_user_state, check_task_cache, apply_time_calibration, get_current_time],
+    tools=[get_user_state, check_task_cache, apply_time_calibration, get_current_time, store_task_decomposition],
 )
 
 body_double_agent = LlmAgent(

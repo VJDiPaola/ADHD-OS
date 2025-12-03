@@ -3,7 +3,7 @@ from google.adk.models.lite_llm import LiteLlm
 
 from adhd_os.config import MODELS
 from adhd_os.tools.common import (
-    get_user_state, get_current_time, update_user_state, get_body_double_status
+    get_user_state, get_current_time, update_user_state, get_body_double_status, log_task_completion
 )
 
 # Import sub-agents
@@ -17,6 +17,7 @@ from adhd_os.agents.emotional import (
     catastrophe_agent, rsd_agent, motivation_agent
 )
 from adhd_os.agents.reflector import reflector_agent
+from adhd_os.agents.pattern_analysis import pattern_analysis_agent
 
 session_summarizer = LlmAgent(
     name="session_summarizer",
@@ -77,8 +78,14 @@ orchestrator = LlmAgent(
     
     SPECIAL COMMANDS:
     - "morning activation" → Run morning protocol (ask energy, meds, priorities)
-    - "shutdown" → Run session_summarizer, then end
+    - "shutdown" → Run pattern_analysis_agent, then session_summarizer, then end
     - "status" → Report current state and any active sessions
+    
+    TASK COMPLETION:
+    - If the user says "I finished [task]" or "Done with [task]":
+      1. CELEBRATE! (Dopamine hit)
+      2. ASK: "How long did that actually take?" (Crucial for calibration)
+      3. Once they answer, use `log_task_completion` tool.
     
     For morning activation, ask:
     1. Energy level (1-10)?
@@ -109,6 +116,7 @@ orchestrator = LlmAgent(
         
         # Reflector Cluster
         reflector_agent,
+        pattern_analysis_agent,
         
         # Emotional Cluster
         catastrophe_agent,
@@ -119,5 +127,5 @@ orchestrator = LlmAgent(
         session_summarizer,
     ],
     
-    tools=[get_user_state, get_current_time, update_user_state, get_body_double_status],
+    tools=[get_user_state, get_current_time, update_user_state, get_body_double_status, log_task_completion],
 )
