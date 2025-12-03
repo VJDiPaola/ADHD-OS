@@ -94,6 +94,44 @@ Open `http://localhost:5173` in your browser.
 - **Local First**: Your data (tasks, journals) lives in a local SQLite database (`adhd_os.db`).
 - **Crisis Intervention**: A hard-coded safety layer detects crisis keywords and provides immediate resources (988/Crisis Text Line) without LLM latency.
 
+
+## ⚙️ Configuration
+Set these environment variables in your `.env` or shell:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GOOGLE_API_KEY` | Required for Gemini models. | - |
+| `ANTHROPIC_API_KEY` | Required for Claude models. | - |
+| `ADHD_OS_MODEL_MODE` | `production` (fast/cheap), `quality` (smarter), or `ab_test`. | `production` |
+
+## 🔧 Troubleshooting
+- **Notifications not showing?**
+  - Ensure `plyer` is installed. On Linux, you may need `libnotify-bin`.
+  - On macOS, allow Terminal to send notifications in System Settings.
+- **"ImportError: List"**?
+  - Ensure you are running Python 3.10+.
+- **Database locked?**
+  - Only one process can write to `adhd_os.db` at a time. Ensure no other instances are running.
+
+## 📂 Project Structure
+```
+ADHD-OS/
+├── adhd_os/
+│   ├── agents/          # Specialist agents (activation, emotional, etc.)
+│   ├── dashboard/       # React frontend + FastAPI backend
+│   ├── infrastructure/  # DB, Logging, Event Bus
+│   ├── tools/           # Tools for agents (time, state, files)
+│   ├── config.py        # Model configuration
+│   ├── main.py          # CLI Entry point
+│   └── state.py         # User state management
+├── tests/               # Integration tests
+├── adhd_os.db           # Local SQLite database (auto-created)
+└── requirements.txt     # Python dependencies
+```
+
+## 📄 License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ## 🤝 Contributing
 We welcome PRs! Please see `CONTRIBUTING.md` (coming soon).
 
