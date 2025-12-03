@@ -8,14 +8,14 @@ class ModelMode(Enum):
 
 # Model registry with fallbacks
 MODELS = {
-    "orchestrator": "gemini-2.0-flash",
+    "orchestrator": "gemini/gemini-2.0-flash",
     "decomposer_quality": "anthropic/claude-opus-4-5-20251101",
-    "decomposer_fast": "gemini-2.0-flash",
+    "decomposer_fast": "gemini/gemini-2.0-flash",
     "emotional": "anthropic/claude-sonnet-4-5-20250929",
-    "temporal": "gemini-2.0-flash",
-    "motivation": "gemini-2.0-flash",
-    "pattern_analysis": "gemini-2.0-pro",
-    "reflector_agent": "gemini-2.0-flash", # Added Reflector
+    "temporal": "gemini/gemini-2.0-flash",
+    "motivation": "gemini/gemini-2.0-flash",
+    "pattern_analysis": "gemini/gemini-2.0-pro",
+    "reflector_agent": "gemini/gemini-2.0-flash", # Added Reflector
 }
 
 def get_model(role: str, mode: ModelMode = ModelMode.PRODUCTION) -> str:

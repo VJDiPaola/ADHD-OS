@@ -35,21 +35,9 @@ class TaskCache:
         return None
     
     def store(self, task: str, plan: DecompositionPlan):
-        """Stores a decomposition in cache."""
-        task_hash = self._compute_hash(task)
-        DB.cache_plan(
-            task_hash, 
-            task, 
-            plan.model_dump_json(), 
-            energy=plan.original_estimate # Using estimate as proxy or just pass current energy?
-            # Wait, plan doesn't have energy. I should pass energy explicitly.
-            # But store signature is (task, plan).
-            # I'll update store signature or infer.
-            # Let's just pass 5 as default or update signature later.
-            # Actually, common.py calls this. I should update common.py too.
-        )
-        # Wait, DB.cache_plan needs energy.
-        # I'll update store to take energy.
+        """Stores a decomposition in cache with default energy."""
+        # Default to average energy if not specified
+        self.store_with_energy(task, plan, energy=5)
         
     def store_with_energy(self, task: str, plan: DecompositionPlan, energy: int):
          task_hash = self._compute_hash(task)

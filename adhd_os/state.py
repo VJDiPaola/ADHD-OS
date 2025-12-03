@@ -92,6 +92,13 @@ class UserState:
         self.current_task = DB.get_state("current_task", None)
         self.energy_level = int(DB.get_state("energy_level", 5))
         
+        med_time_iso = DB.get_state("medication_time", None)
+        if med_time_iso:
+            try:
+                self.medication_time = datetime.fromisoformat(med_time_iso)
+            except ValueError:
+                self.medication_time = None
+        
     def save_to_db(self):
         """Saves persistent state to database."""
         from adhd_os.infrastructure.database import DB
@@ -100,11 +107,15 @@ class UserState:
         if self.current_task:
             DB.save_state("current_task", self.current_task)
         DB.save_state("energy_level", self.energy_level)
+        if self.medication_time:
+            DB.save_state("medication_time", self.medication_time.isoformat())
 
     def get_task_type_multiplier(self, task_type: str) -> Optional[float]:
         """Returns learned multiplier from DB."""
         from adhd_os.infrastructure.database import DB
         return DB.get_task_multiplier(task_type)
+
+    def log_task_completion(self, task_type: str, estimated: int, actual: int):
         """Logs task completion to DB."""
         from adhd_os.infrastructure.database import DB
         

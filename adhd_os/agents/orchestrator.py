@@ -33,6 +33,8 @@ session_summarizer = LlmAgent(
         "energy_trajectory": "started X, ended Y",
         "tasks_discussed": ["task1", "task2"],
         "tasks_completed": ["task1"],
+        "accomplishments": ["Small win 1", "Big win 2"],
+        "narrative_summary": "A warm, encouraging paragraph celebrating what was done, even if it was just 'showing up'.",
         "barriers_encountered": ["type1", "type2"],
         "interventions_used": ["intervention1"],
         "open_loops": ["things still pending"],
@@ -40,7 +42,7 @@ session_summarizer = LlmAgent(
         "tomorrow_priorities": ["if discussed"]
     }
     
-    Keep it factual and compact. This is for data, not narrative.
+    The 'narrative_summary' should be written directly to the user, validating their effort.
     """,
     
     tools=[get_user_state],
