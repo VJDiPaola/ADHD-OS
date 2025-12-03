@@ -82,28 +82,46 @@ class UserState:
             mins_remaining = int((end - now).total_seconds() / 60)
             return {"active": True, "minutes_remaining": mins_remaining}
     
+    def load_from_db(self):
+        """Loads state from database."""
+        from adhd_os.infrastructure.database import DB
+        
+        # Load persistent config
+        self.base_multiplier = DB.get_state("base_multiplier", 1.5)
+        self.peak_window_hours = tuple(DB.get_state("peak_window_hours", [1, 5]))
+        
+        # Load last known energy (optional, maybe we want this fresh each time?)
+        # For now, let's keep energy ephemeral as it changes daily.
+        
+    def save_to_db(self):
+        """Saves persistent state to database."""
+        from adhd_os.infrastructure.database import DB
+        DB.save_state("base_multiplier", self.base_multiplier)
+        DB.save_state("peak_window_hours", list(self.peak_window_hours))
+
     def get_task_type_multiplier(self, task_type: str) -> Optional[float]:
-        """Returns learned multiplier for specific task types."""
-        if task_type in self.task_history:
-            history = self.task_history[task_type]
-            if len(history) >= 3:  # Need enough data
-                ratios = [h["actual"] / h["estimated"] for h in history if h["estimated"] > 0]
-                return round(sum(ratios) / len(ratios), 2)
-        return None
+        """Returns learned multiplier from DB."""
+        from adhd_os.infrastructure.database import DB
+        return DB.get_task_multiplier(task_type)
     
     def log_task_completion(self, task_type: str, estimated: int, actual: int):
-        """Logs task completion for multiplier calibration."""
+        """Logs task completion to DB."""
+        from adhd_os.infrastructure.database import DB
+        
+        # Update in-memory history for immediate feedback (optional)
         if task_type not in self.task_history:
             self.task_history[task_type] = []
         self.task_history[task_type].append({
             "estimated": estimated,
             "actual": actual,
-            "timestamp": datetime.now().isoformat(),
-            "energy": self.energy_level,
-            "in_peak": self.is_in_peak_window
+            "timestamp": datetime.now().isoformat()
         })
-        # Keep only last 20 entries per type
-        self.task_history[task_type] = self.task_history[task_type][-20:]
+        
+        # Log to DB for long-term analytics
+        DB.log_task_completion(
+            task_type, estimated, actual, 
+            self.energy_level, self.is_in_peak_window
+        )
 
 # Global state instance
 USER_STATE = UserState()

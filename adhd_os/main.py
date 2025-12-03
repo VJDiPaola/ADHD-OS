@@ -7,14 +7,18 @@ from google.adk.runners import Runner
 from adhd_os.config import MODEL_MODE, get_model
 from adhd_os.state import USER_STATE
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
-from adhd_os.infrastructure.persistence import FileSessionService
+from adhd_os.infrastructure.persistence import SqliteSessionService
+from adhd_os.infrastructure.logging import logger
 from adhd_os.agents.orchestrator import orchestrator
 
 async def run_adhd_os():
     """Main interaction loop for ADHD-OS v2.1."""
     
+    # Initialize state from DB
+    USER_STATE.load_from_db()
+    
     # Initialize session with persistence
-    session_service = FileSessionService(storage_dir="sessions")
+    session_service = SqliteSessionService()
     session = await session_service.create_session(
         app_name="adhd_os",
         user_id=USER_STATE.user_id
@@ -27,12 +31,13 @@ async def run_adhd_os():
         session_service=session_service
     )
     
+    logger.info("ADHD Operating System v2.1 Started")
+    logger.info(f"Model Mode: {MODEL_MODE.value}")
+    
     print("=" * 70)
     print("  ADHD Operating System v2.1")
     print("  Merged: Full Agent Roster + Optimized Infrastructure")
     print("=" * 70)
-    print(f"\n  Model Mode: {MODEL_MODE.value}")
-    print(f"  Decomposer: {get_model('decomposer', MODEL_MODE)}")
     print()
     print("Quick commands:")
     print("  'morning activation' - Start your day with structure")
@@ -50,6 +55,7 @@ async def run_adhd_os():
     async def on_task_completed(data):
         ratio = data.get("ratio", 1.0)
         if ratio > 1.5:
+            logger.warning(f"Task took {ratio:.1f}x longer than estimated", extra={"data": data})
             print(f"📊 [PATTERN] Task took {ratio:.1f}x longer than estimated. Adjusting multiplier...")
     
     EVENT_BUS.subscribe(EventType.TASK_COMPLETED, on_task_completed)
@@ -72,6 +78,10 @@ async def run_adhd_os():
                     "timestamp": datetime.now().isoformat(),
                     "session_id": session.id
                 })
+                
+                # Save persistent state
+                USER_STATE.save_to_db()
+                
                 print("👋 Session saved. Work mode complete!")
                 break
             
@@ -91,11 +101,11 @@ async def run_adhd_os():
         except KeyboardInterrupt:
             print("\n\n⚡ Interrupted. Running quick shutdown...")
             await EVENT_BUS.publish(EventType.SESSION_SUMMARIZED, {"status": "interrupted"})
+            USER_STATE.save_to_db()
             break
         except Exception as e:
+            logger.error(f"Runtime error: {e}", exc_info=True)
             print(f"\n⚠️ Error: {e}")
-            import traceback
-            traceback.print_exc()
 
 if __name__ == "__main__":
     # Verify API keys
