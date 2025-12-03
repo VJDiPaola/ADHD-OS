@@ -15,7 +15,19 @@ ADHD-OS is not a static app. It is a **multi-agent system** that acts as a prost
 4.  **Calibrate**: Fix time blindness with historical data.
 
 ## 🏗️ Architecture
-The system runs on a local Python backend (`adhd_os/`) powered by Google Gemini 2.0 Flash (fast) and Anthropic Claude 3.5 Sonnet (nuanced), with a React frontend (`dashboard/`) for visualization.
+The system runs on a local Python backend (`adhd_os/`) powered by state-of-the-art LLMs:
+- **Google Gemini 2.0 Flash**: High-speed orchestration and real-time responses.
+- **Google Gemini 2.0 Pro**: Deep pattern analysis and data correlation.
+- **Anthropic Claude 4.5 Sonnet & Opus**: Nuanced emotional regulation and complex task decomposition.
+
+It features a **React frontend** (`dashboard/`) for visualizing energy and task history.
+
+### ✨ Key Capabilities (v2.1)
+- **Context Recovery**: Remembers your state even after a restart (12h window).
+- **Proactive Notifications**: Sends desktop alerts for body double check-ins.
+- **Pattern Learning**: Analyzes your history to find "energy vs. task" correlations.
+- **Safety Layer**: Hard-coded intervention for crisis keywords (bypassing LLMs).
+- **Interactive Calibration**: Learns from your actual vs. estimated time.
 
 ### The Agent Roster
 | Agent | Role | Specialization |
