@@ -20,11 +20,18 @@ async def test_routing():
     session = await session_service.create_session("test_app", "test_user")
     
     # Mock the LLM to avoid credential issues and costs
-    with patch("google.adk.models.lite_llm.LiteLlm.generate_response") as mock_generate:
+    with patch("google.adk.models.lite_llm.LiteLlm.generate_content_async", new_callable=MagicMock) as mock_generate:
         # Configure mock to return a dummy response
-        mock_response = MagicMock()
-        mock_response.text = "Mocked Agent Response"
-        mock_generate.return_value = mock_response
+        # generate_content_async is async, so return value must be awaitable
+        async def async_return(*args, **kwargs):
+            mock_response = MagicMock()
+            # LlmResponse structure: response.content.parts[0].text
+            mock_part = MagicMock()
+            mock_part.text = "Mocked Agent Response"
+            mock_response.content.parts = [mock_part]
+            return mock_response
+            
+        mock_generate.side_effect = async_return
         
         runner = Runner(
             agent=orchestrator,

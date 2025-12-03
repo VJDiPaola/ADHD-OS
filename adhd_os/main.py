@@ -57,7 +57,7 @@ async def run_adhd_os():
         ratio = data.get("ratio", 1.0)
         if ratio > 1.5:
             logger.warning(f"Task took {ratio:.1f}x longer than estimated", extra={"data": data})
-            print(f"📊 [PATTERN] Task took {ratio:.1f}x longer than estimated. Adjusting multiplier...")
+            print(f" [PATTERN] Task took {ratio:.1f}x longer than estimated. Adjusting multiplier...")
     
     EVENT_BUS.subscribe(EventType.TASK_COMPLETED, on_task_completed)
     
@@ -69,11 +69,11 @@ async def run_adhd_os():
                 continue
             
             if user_input.lower() == 'quit':
-                print("\n👋 Work mode complete. See you tomorrow!")
+                print("\n Work mode complete. See you tomorrow!")
                 break
             
             if user_input.lower() == 'shutdown':
-                print("\n💾 Summarizing session...")
+                print("\n Summarizing session...")
                 # In production, run session_summarizer here
                 await EVENT_BUS.publish(EventType.SESSION_SUMMARIZED, {
                     "timestamp": datetime.now().isoformat(),
@@ -83,30 +83,35 @@ async def run_adhd_os():
                 # Save persistent state
                 USER_STATE.save_to_db()
                 
-                print("👋 Session saved. Work mode complete!")
+                print(" Session saved. Work mode complete!")
                 break
             
             # Process through orchestrator
-            response = await runner.run_async(
+            async for response in runner.run_async(
                 user_id=USER_STATE.user_id,
                 session_id=session.id,
                 new_message=Message(content=user_input)
-            )
-            
-            # Extract and print response
-            if response and response.content:
-                print(f"\nADHD-OS: {response.content}")
-            else:
-                print("\n[Processing... check for deterministic machine output above]")
+            ):
+                # Extract and print response
+                if response and response.content:
+                    print(f"\nADHD-OS: {response.content}")
+                    
+                    # Log interaction
+                    logger.info("Agent response", extra={
+                        "user_input": user_input,
+                        "agent_response": response.content
+                    })
+                else:
+                    print("\n[Processing... check for deterministic machine output above]")
                 
         except KeyboardInterrupt:
-            print("\n\n⚡ Interrupted. Running quick shutdown...")
+            print("\n\n Interrupted. Running quick shutdown...")
             await EVENT_BUS.publish(EventType.SESSION_SUMMARIZED, {"status": "interrupted"})
             USER_STATE.save_to_db()
             break
         except Exception as e:
             logger.error(f"Runtime error: {e}", exc_info=True)
-            print(f"\n⚠️ Error: {e}")
+            print(f"\n Error: {e}")
 
 if __name__ == "__main__":
     # Verify API keys
@@ -117,11 +122,11 @@ if __name__ == "__main__":
         missing_keys.append("ANTHROPIC_API_KEY")
     
     if missing_keys:
-        print(f"⚠️  Missing API keys: {', '.join(missing_keys)}")
+        print(f"  Missing API keys: {', '.join(missing_keys)}")
         print("   Set them in your environment to enable all agents.")
         print()
     
-    print("🚀 Starting ADHD-OS v2.1...")
+    print(" Starting ADHD-OS v2.1...")
     print()
     
     asyncio.run(run_adhd_os())
