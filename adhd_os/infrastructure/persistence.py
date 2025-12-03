@@ -73,11 +73,13 @@ class SqliteSessionService(BaseSessionService):
             )
             events = []
             for e_row in cursor.fetchall():
-                events.append(Event(
-                    type=e_row[0],
-                    data=json.loads(e_row[1]),
-                    timestamp=datetime.fromisoformat(e_row[2]) if isinstance(e_row[2], str) else e_row[2]
-                ))
+                # We assume all events are ADK events for now
+                if e_row[0] == "adk_event":
+                    events.append(Event.model_validate_json(e_row[1]))
+                else:
+                    # Fallback for legacy or other event types (though Session expects Event objects)
+                    # We might skip them or try to coerce
+                    pass
             
             # last_updated_at from DB is timestamp string or datetime, convert to float
             last_update = row[3]
@@ -117,7 +119,12 @@ class SqliteSessionService(BaseSessionService):
         with DB._get_conn() as conn:
             conn.execute(
                 "INSERT INTO events (session_id, type, data_json, timestamp) VALUES (?, ?, ?, ?)",
-                (session.id, event.type, json.dumps(event.data), event.timestamp.isoformat())
+                (
+                    session.id, 
+                    "adk_event", 
+                    event.model_dump_json(), 
+                    datetime.fromtimestamp(event.timestamp).isoformat()
+                )
             )
             conn.execute(
                 "UPDATE sessions SET last_updated_at = ? WHERE id = ?",

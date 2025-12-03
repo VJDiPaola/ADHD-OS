@@ -10,6 +10,7 @@ from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.persistence import SqliteSessionService
 from adhd_os.infrastructure.logging import logger
 from adhd_os.agents.orchestrator import orchestrator
+from adhd_os.models.message import Message
 
 async def run_adhd_os():
     """Main interaction loop for ADHD-OS v2.1."""
@@ -89,7 +90,7 @@ async def run_adhd_os():
             response = await runner.run_async(
                 user_id=USER_STATE.user_id,
                 session_id=session.id,
-                new_message=user_input
+                new_message=Message(content=user_input)
             )
             
             # Extract and print response

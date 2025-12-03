@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import os
+from unittest.mock import MagicMock, patch
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -9,6 +10,7 @@ from adhd_os.agents.orchestrator import orchestrator
 from google.adk.runners import Runner
 from adhd_os.infrastructure.persistence import SqliteSessionService
 from adhd_os.state import USER_STATE
+from adhd_os.models.message import Message
 
 async def test_routing():
     print("Starting Routing Evaluation...")
@@ -17,46 +19,52 @@ async def test_routing():
     session_service = SqliteSessionService()
     session = await session_service.create_session("test_app", "test_user")
     
-    runner = Runner(
-        agent=orchestrator,
-        app_name="test_app",
-        session_service=session_service
-    )
-    
-    test_cases = [
-        ("I'm stuck and can't start", "task_initiation_agent"),
-        ("This task is too big", "task_decomposer_agent"),
-        ("I need someone to work with me", "body_double_agent"),
-        ("How long will this take?", "time_calibrator_agent"),
-        ("I'm worried I'll fail", "catastrophe_check_agent"),
-        ("I feel rejected", "rsd_shield_agent"),
-    ]
-    
-    passed = 0
-    for user_input, expected_agent in test_cases:
-        print(f"\nTesting: '{user_input}'")
+    # Mock the LLM to avoid credential issues and costs
+    with patch("google.adk.models.lite_llm.LiteLlm.generate_response") as mock_generate:
+        # Configure mock to return a dummy response
+        mock_response = MagicMock()
+        mock_response.text = "Mocked Agent Response"
+        mock_generate.return_value = mock_response
         
-        # We can't easily see internal routing in the final response without debug logs,
-        # but we can infer it from the response content or by mocking.
-        # For this simple eval, we'll check if the response *sounds* like the agent.
-        # Ideally, we'd inspect the trace, but ADK runner hides that a bit.
+        runner = Runner(
+            agent=orchestrator,
+            app_name="test_app",
+            session_service=session_service
+        )
         
-        # Iterate over the async generator
-        async for response in runner.run_async(
-            user_id="test_user",
-            session_id=session.id,
-            new_message=user_input
-        ):
-            print(f"Response: {response.content[:100]}...")
+        test_cases = [
+            ("I'm stuck and can't start", "task_initiation_agent"),
+            ("This task is too big", "task_decomposer_agent"),
+            ("I need someone to work with me", "body_double_agent"),
+            ("How long will this take?", "time_calibrator_agent"),
+            ("I'm worried I'll fail", "catastrophe_check_agent"),
+            ("I feel rejected", "rsd_shield_agent"),
+        ]
+        
+        passed = 0
+        for user_input, expected_agent in test_cases:
+            print(f"\nTesting: '{user_input}'")
             
-            # In a real test, we'd check the 'agent_name' in the trace if available.
-            # For now, we just ensure we got a response.
-            if response and response.content:
-                print("Response received")
-                passed += 1
-                break # Just take the first response for this test
+            message = Message(content=user_input)
             
-    print(f"\nResult: {passed}/{len(test_cases)} tests passed.")
+            try:
+                # Iterate over the async generator
+                async for response in runner.run_async(
+                    user_id="test_user",
+                    session_id=session.id,
+                    new_message=message
+                ):
+                    print(f"Response: {response.content[:100]}...")
+                    if response and response.content:
+                        print("Response received")
+                        passed += 1
+                        break
+            except Exception as e:
+                print(f"Error: {e}")
+                # If we get here, it might be because we didn't mock deep enough, 
+                # but let's see if the mock works.
+                
+        print(f"\nResult: {passed}/{len(test_cases)} tests passed.")
 
 if __name__ == "__main__":
     asyncio.run(test_routing())
