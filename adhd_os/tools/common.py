@@ -1,4 +1,5 @@
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any, List
 
@@ -8,6 +9,9 @@ from adhd_os.state import USER_STATE
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.cache import TASK_CACHE
 from adhd_os.infrastructure.machines import BODY_DOUBLE, FOCUS_TIMER
+
+# Registry of scheduled check-in tasks so they can be cancelled if needed
+_scheduled_checkins: List[asyncio.Task] = []
 
 @FunctionTool
 def get_current_time() -> Dict:
@@ -35,6 +39,14 @@ def get_user_state() -> Dict:
         "time": datetime.now().strftime("%H:%M")
     }
 
+def _try_publish_event(event_type: EventType, data: Dict[str, Any]):
+    """Safely publish an event, creating a task on the running loop."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(EVENT_BUS.publish(event_type, data))
+    except RuntimeError:
+        pass  # No running event loop; skip async event publish
+
 @FunctionTool
 def update_user_state(
     energy_level: Optional[int] = None,
@@ -44,24 +56,24 @@ def update_user_state(
 ) -> Dict:
     """Updates user state. Energy 1-10."""
     changes = []
-    
+
     if energy_level is not None:
         USER_STATE.energy_level = max(1, min(10, energy_level))
         changes.append(f"energy={energy_level}")
-        asyncio.create_task(EVENT_BUS.publish(EventType.ENERGY_UPDATED, {"level": energy_level}))
-    
+        _try_publish_event(EventType.ENERGY_UPDATED, {"level": energy_level})
+
     if medication_taken:
         USER_STATE.medication_time = datetime.now()
         changes.append("medication_logged")
-    
+
     if current_task is not None:
         USER_STATE.current_task = current_task
         changes.append(f"task={current_task[:20]}")
-    
+
     if mood_indicator:
         USER_STATE.mood_indicators.append(mood_indicator)
         changes.append(f"mood={mood_indicator}")
-    
+
     return {
         "status": "updated",
         "changes": changes,
@@ -76,11 +88,11 @@ def apply_time_calibration(estimated_minutes: int, task_type: Optional[str] = No
     """
     # Check for task-specific multiplier
     specific_mult = USER_STATE.get_task_type_multiplier(task_type) if task_type else None
-    
+
     # Use specific or dynamic
     multiplier = specific_mult or USER_STATE.dynamic_multiplier
     calibrated = int(estimated_minutes * multiplier)
-    
+
     # Build explanation
     factors = []
     if USER_STATE.energy_level <= 5:
@@ -89,7 +101,7 @@ def apply_time_calibration(estimated_minutes: int, task_type: Optional[str] = No
         factors.append("outside peak focus window")
     if specific_mult:
         factors.append(f"historical data for '{task_type}'")
-    
+
     return {
         "original_estimate": estimated_minutes,
         "multiplier_used": multiplier,
@@ -103,14 +115,14 @@ def apply_time_calibration(estimated_minutes: int, task_type: Optional[str] = No
 def check_task_cache(task_description: str) -> Dict:
     """Checks semantic cache for existing decomposition."""
     cached = TASK_CACHE.get(task_description, USER_STATE.energy_level)
-    
+
     if cached:
         return {
             "found": True,
             "cached_plan": cached.model_dump(),
             "message": "Found cached decomposition!"
         }
-    
+
     similar = TASK_CACHE.get_similar_tasks(task_description)
     return {
         "found": False,
@@ -134,16 +146,16 @@ def store_task_decomposition(task_description: str, plan_json: Dict) -> Dict:
 def log_task_completion(task_type: str, estimated_minutes: int, actual_minutes: int) -> Dict:
     """Logs task completion for calibration learning."""
     USER_STATE.log_task_completion(task_type, estimated_minutes, actual_minutes)
-    
+
     ratio = actual_minutes / estimated_minutes if estimated_minutes > 0 else 1.0
-    
-    asyncio.create_task(EVENT_BUS.publish(EventType.TASK_COMPLETED, {
+
+    _try_publish_event(EventType.TASK_COMPLETED, {
         "task_type": task_type,
         "estimated": estimated_minutes,
         "actual": actual_minutes,
         "ratio": ratio
-    }))
-    
+    })
+
     return {
         "logged": True,
         "ratio": round(ratio, 2),
@@ -161,17 +173,19 @@ def log_activation_attempt(task: str, barrier_type: str, intervention: str) -> D
         "energy": USER_STATE.energy_level,
         "in_peak": USER_STATE.is_in_peak_window
     }
-    
-    asyncio.create_task(EVENT_BUS.publish(EventType.TASK_STARTED, entry))
-    
+
+    _try_publish_event(EventType.TASK_STARTED, entry)
+
     return {"logged": True, "entry": entry}
 
 @FunctionTool
 def activate_body_double(task: str, duration_minutes: int, checkin_interval: int = 10) -> Dict:
     """Activates deterministic body double machine."""
-    # Run synchronously but fire off async task
-    loop = asyncio.get_event_loop()
-    result = loop.create_task(BODY_DOUBLE.start_session(task, duration_minutes, checkin_interval))
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(BODY_DOUBLE.start_session(task, duration_minutes, checkin_interval))
+    except RuntimeError:
+        return {"status": "error", "message": "No running event loop to start body double."}
     return {"status": "activating", "message": f"Starting body double for '{task}'..."}
 
 @FunctionTool
@@ -182,15 +196,36 @@ def get_body_double_status() -> Dict:
 @FunctionTool
 def set_hyperfocus_guardrail(minutes: int, reason: str) -> Dict:
     """Sets hard stop for hyperfocus protection."""
-    loop = asyncio.get_event_loop()
-    loop.create_task(FOCUS_TIMER.set_hard_stop(minutes, reason))
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(FOCUS_TIMER.set_hard_stop(minutes, reason))
+    except RuntimeError:
+        return {"status": "error", "message": "No running event loop to set guardrail."}
     return {"status": "setting", "message": f"Setting {minutes} minute guardrail..."}
 
 @FunctionTool
 def schedule_checkin(minutes_from_now: int, message: str) -> Dict:
-    """Schedules a future reminder/check-in."""
+    """Schedules a future reminder/check-in using asyncio."""
     checkin_time = datetime.now() + timedelta(minutes=minutes_from_now)
-    # In production, use Cloud Tasks or similar
+
+    async def _fire_checkin():
+        await asyncio.sleep(minutes_from_now * 60)
+        print(f"\n🔔 [CHECK-IN] {message}\n")
+        await EVENT_BUS.publish(EventType.CHECKIN_DUE, {
+            "message": message,
+            "scheduled_for": checkin_time.isoformat()
+        })
+
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(_fire_checkin())
+        _scheduled_checkins.append(task)
+    except RuntimeError:
+        return {
+            "scheduled": False,
+            "message": "No running event loop to schedule check-in."
+        }
+
     return {
         "scheduled": True,
         "time": checkin_time.strftime("%H:%M"),
@@ -201,38 +236,17 @@ def schedule_checkin(minutes_from_now: int, message: str) -> Dict:
 def get_recent_history(limit: int = 50) -> List[Dict]:
     """Retrieves recent task history for pattern analysis."""
     from adhd_os.infrastructure.database import DB
-    with DB._get_conn() as conn:
-        cursor = conn.execute(
-            """
-            SELECT task_type, estimated_minutes, actual_minutes, energy_level, in_peak_window, timestamp 
-            FROM task_history 
-            ORDER BY timestamp DESC LIMIT ?
-            """,
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "type": r[0],
-                "est": r[1],
-                "act": r[2],
-                "energy": r[3],
-                "peak": bool(r[4]),
-                "date": r[5][:10]
-            }
-            for r in rows
-        ]
+    return DB.get_recent_history(limit)
 
 @FunctionTool
 def safe_list_dir(path: str = ".") -> List[str]:
     """Lists files in the project directory (read-only)."""
-    import os
     base_path = os.getcwd()
-    target_path = os.path.abspath(os.path.join(base_path, path))
-    
-    if not target_path.startswith(base_path):
+    target_path = os.path.realpath(os.path.join(base_path, path))
+
+    if not target_path.startswith(os.path.realpath(base_path)):
         return ["Error: Access denied. Stay within project root."]
-    
+
     try:
         return os.listdir(target_path)
     except Exception as e:
@@ -241,13 +255,12 @@ def safe_list_dir(path: str = ".") -> List[str]:
 @FunctionTool
 def safe_read_file(path: str) -> str:
     """Reads a file from the project directory (read-only)."""
-    import os
     base_path = os.getcwd()
-    target_path = os.path.abspath(os.path.join(base_path, path))
-    
-    if not target_path.startswith(base_path):
+    target_path = os.path.realpath(os.path.join(base_path, path))
+
+    if not target_path.startswith(os.path.realpath(base_path)):
         return "Error: Access denied. Stay within project root."
-    
+
     try:
         with open(target_path, 'r', encoding='utf-8') as f:
             return f.read()

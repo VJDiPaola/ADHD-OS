@@ -6,7 +6,7 @@ from adhd_os.tools.common import get_recent_history, get_user_state
 
 pattern_analysis_agent = LlmAgent(
     name="pattern_analysis_agent",
-    model=LiteLlm(model=MODELS["temporal"]),  # Gemini Flash for data analysis
+    model=LiteLlm(model=MODELS["pattern_analysis"]),  # Gemini Pro for deeper analysis
     
     description="Analyzes task history to find patterns and correlations.",
     

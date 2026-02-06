@@ -111,7 +111,7 @@ rsd_agent = LlmAgent(
 
 motivation_agent = LlmAgent(
     name="motivation_agent",
-    model=LiteLlm(model=MODELS["motivation"], api_key=None),  # Gemini Flash
+    model=LiteLlm(model=MODELS["motivation"]),  # Gemini Flash
     
     description="""
     Makes boring tasks interesting using ADHD interest-based strategies.

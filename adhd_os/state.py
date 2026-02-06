@@ -44,12 +44,12 @@ class UserState:
         if not self.is_in_peak_window:
             mult += 0.3  # Off-peak = slower
             
-        # Time of day adjustment
+        # Time of day adjustment (check evening first, since >= 20 is a subset of >= 15)
         hour = datetime.now().hour
-        if hour >= 15:  # Afternoon slump
-            mult += 0.15
-        elif hour >= 20:  # Evening
+        if hour >= 20:  # Evening
             mult += 0.25
+        elif hour >= 15:  # Afternoon slump
+            mult += 0.15
             
         return round(max(1.0, mult), 2)
     
@@ -104,8 +104,7 @@ class UserState:
         from adhd_os.infrastructure.database import DB
         DB.save_state("base_multiplier", self.base_multiplier)
         DB.save_state("peak_window_hours", list(self.peak_window_hours))
-        if self.current_task:
-            DB.save_state("current_task", self.current_task)
+        DB.save_state("current_task", self.current_task)
         DB.save_state("energy_level", self.energy_level)
         if self.medication_time:
             DB.save_state("medication_time", self.medication_time.isoformat())

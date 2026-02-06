@@ -23,13 +23,26 @@ class EventBus:
     def __init__(self):
         self._subscribers: Dict[EventType, List[Callable]] = {}
         self._event_log: List[Dict] = []
-    
+
     def subscribe(self, event_type: EventType, handler: Callable):
         """Subscribe a handler to an event type."""
         if event_type not in self._subscribers:
             self._subscribers[event_type] = []
-        self._subscribers[event_type].append(handler)
-    
+        if handler not in self._subscribers[event_type]:
+            self._subscribers[event_type].append(handler)
+
+    def unsubscribe(self, event_type: EventType, handler: Callable):
+        """Remove a handler from an event type."""
+        if event_type in self._subscribers:
+            try:
+                self._subscribers[event_type].remove(handler)
+            except ValueError:
+                pass
+
+    def unsubscribe_all(self, event_type: EventType):
+        """Remove all handlers for an event type."""
+        self._subscribers.pop(event_type, None)
+
     async def publish(self, event_type: EventType, data: Dict[str, Any]):
         """Publish an event to all subscribers."""
         event = {
@@ -39,10 +52,10 @@ class EventBus:
         }
         self._event_log.append(event)
         print(f"⚡ [EVENT] {event_type.value}: {json.dumps(data, default=str)}")
-        
-        # Dispatch to subscribers
+
+        # Dispatch to subscribers (iterate over a copy to allow modification during dispatch)
         if event_type in self._subscribers:
-            for handler in self._subscribers[event_type]:
+            for handler in list(self._subscribers[event_type]):
                 try:
                     if asyncio.iscoroutinefunction(handler):
                         await handler(data)
@@ -50,7 +63,7 @@ class EventBus:
                         handler(data)
                 except Exception as e:
                     print(f"⚠️ [EVENT ERROR] Handler failed: {e}")
-    
+
     def get_recent_events(self, count: int = 10) -> List[Dict]:
         """Returns recent events for context."""
         return self._event_log[-count:]

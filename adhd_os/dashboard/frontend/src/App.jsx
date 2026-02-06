@@ -76,14 +76,14 @@ function App() {
               <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No tasks recorded yet.</div>
             ) : (
               history.map((item) => (
-                <div key={item.task_id} className="timeline-item">
+                <div key={item.id} className="timeline-item">
                   <div className="timeline-time">
-                    {new Date(item.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                   </div>
                   <div className="timeline-content">
-                    <strong>{item.description}</strong>
+                    <strong>{item.task_type}</strong>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      Duration: {item.duration_minutes.toFixed(1)}m
+                      Est: {item.estimated_minutes}m | Actual: {item.actual_minutes}m | Energy: {item.energy_level}/10
                     </div>
                   </div>
                   <div className="status-badge">DONE</div>
@@ -101,7 +101,7 @@ function App() {
               <div key={session.id} className="session-item">
                 <div style={{ fontWeight: 600 }}>Session {session.id.slice(0, 8)}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Last active: {new Date(session.last_active * 1000).toLocaleDateString()}
+                  Last active: {session.last_active ? new Date(session.last_active).toLocaleDateString() : 'Unknown'}
                 </div>
               </div>
             ))}
