@@ -1,139 +1,306 @@
-# ADHD-OS v2.1: The Executive Function Prosthetic
+# ADHD-OS v2.1 — The Executive Function Prosthetic
 
-> **"A second brain that doesn't just store information, but initiates action."**
+> A multi-agent AI co-pilot that helps ADHD brains **start tasks, manage time, regulate emotions, and build momentum** — not another to-do list.
 
-## 🚨 The Problem
-Traditional productivity tools (Notion, Todoist, Calendars) assume you have the **executive function** to use them. They are passive repositories. For an ADHD brain, the problem isn't *knowing* what to do—it's **bridging the gap between intention and action**.
+---
 
-We don't need another list. We need a **co-pilot**.
+## ⚡ 30-Second Quickstart
 
-## 🧠 The Solution: Agentic AI
-ADHD-OS is not a static app. It is a **multi-agent system** that acts as a prosthetic for specific executive dysfunctions. It doesn't just wait for you; it proactively helps you:
-1.  **Initiate**: Overcome "Wall of Awful" paralysis.
-2.  **Decompose**: Break overwhelming projects into microscopic steps.
-3.  **Regulate**: Manage rejection sensitivity (RSD) and anxiety.
-4.  **Calibrate**: Fix time blindness with historical data.
+```bash
+git clone https://github.com/vjdipaola/adhd-os.git
+cd adhd-os
+pip install -r requirements.txt
 
-## 🏗️ Architecture
-The system runs on a local Python backend (`adhd_os/`) powered by state-of-the-art LLMs:
-- **Google Gemini 2.0 Flash**: High-speed orchestration and real-time responses.
-- **Google Gemini 2.0 Pro**: Deep pattern analysis and data correlation.
-- **Anthropic Claude 4.5 Sonnet & Opus**: Nuanced emotional regulation and complex task decomposition.
+# Set your API keys (both required for full agent roster)
+export GOOGLE_API_KEY="your-google-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
 
-It features a **React frontend** (`dashboard/`) for visualizing energy and task history.
+# Launch
+python -m adhd_os.main
+```
 
-### ✨ Key Capabilities (v2.1)
-- **Context Recovery**: Remembers your state even after a restart (12h window).
-- **Proactive Notifications**: Sends desktop alerts for body double check-ins.
-- **Pattern Learning**: Analyzes your history to find "energy vs. task" correlations.
-- **Safety Layer**: Hard-coded intervention for crisis keywords (bypassing LLMs).
-- **Interactive Calibration**: Learns from your actual vs. estimated time.
+> **Windows?** Use `set` instead of `export`, or add the keys to your system environment variables.
 
-### The Agent Roster
-| Agent | Role | Specialization |
-|-------|------|----------------|
-| **Orchestrator** | The Boss | Routes requests, maintains context, manages state. |
-| **Task Initiator** | The Starter | Identifies barriers (fear, boredom) and generates the *tiniest* next step. |
-| **Decomposer** | The Planner | Breaks "Do Taxes" into 40 distinct, 5-minute actions. |
-| **Body Double** | The Partner | Deterministic machine that holds space and demands check-ins. |
-| **Time Calibrator** | The Realist | "You said 10 mins, history says 45. Let's block an hour." |
-| **Reflector** | The Critic | Reviews plans for blind spots and future-proofs them. |
-| **Pattern Analyst** | The Scientist | Finds hidden correlations (e.g., "Low energy = Admin avoidance"). |
+---
 
-## 🚀 Getting Started
+## 🧠 What Is ADHD-OS?
+
+Traditional productivity apps assume you have the executive function to use them. ADHD-OS doesn't.
+
+It's a **CLI agent system** built on [Google ADK](https://github.com/google/adk-python) that routes your natural-language input to specialist AI agents — each tuned for a specific executive dysfunction. You talk to it like a co-worker, and it figures out what you actually need:
+
+- Stuck? It finds the *tiny* next step.
+- Overwhelmed? It decomposes the task into 5-minute chunks.
+- Anxious? It reality-tests the catastrophe.
+- Time-blind? It calibrates your estimate with historical data.
+
+All data stays local in a SQLite database. No cloud sync, no accounts.
+
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| **Task Initiation** | Identifies the real barrier (fear, boredom, overwhelm) and generates a ≤5-minute first step |
+| **Task Decomposition** | Breaks big tasks into microscopic, checkpointed steps with rabbit-hole warnings |
+| **Body Doubling** | Deterministic accountability machine — no LLM needed, just timed check-ins and desktop notifications |
+| **Time Calibration** | Applies a dynamic multiplier based on energy, medication window, and task history |
+| **Hyperfocus Guardrails** | Sets hard stops with 30/10/5-minute warnings so deep work doesn't derail the day |
+| **Emotional Regulation** | Anxiety reality-testing, RSD shielding, and dopamine-based motivation strategies |
+| **Pattern Analysis** | Finds correlations in your history (e.g., "low energy → admin avoidance") |
+| **Plan Review** | Reflector agent that sanity-checks your plans for blind spots |
+| **Context Recovery** | Resumes your last session within a 12-hour window |
+| **Crisis Safety Layer** | Hard-coded keyword detection → immediate 988/Crisis Text Line resources (bypasses LLMs) |
+| **Dashboard** | Optional React + FastAPI UI for visualizing energy, task history, and sessions |
+
+---
+
+## 🤖 Agent Roster
+
+| Agent | Cluster | What It Does | Model |
+|-------|---------|-------------|-------|
+| **Orchestrator** | Core | Routes input to the right specialist, manages state | Gemini 2.0 Flash |
+| **Task Initiator** | Activation | Overcomes "Wall of Awful" paralysis with a tiny next step | Claude Sonnet |
+| **Decomposer** | Activation | Breaks tasks into ≤10-min steps with checkpoints | Claude Opus (quality) / Gemini Flash (production) |
+| **Body Double** | Activation | Deterministic check-in machine for accountability | Gemini Flash |
+| **Time Calibrator** | Temporal | Corrects time blindness with dynamic multipliers | Gemini Flash |
+| **Calendar Strategist** | Temporal | Schedules around peak medication window | Gemini Flash |
+| **Focus Timer** | Temporal | Hyperfocus guardrails with hard-stop warnings | Gemini Flash |
+| **Catastrophe Check** | Emotional | Reality-tests anxiety spirals | Claude Sonnet |
+| **RSD Shield** | Emotional | Reframes perceived rejection | Claude Sonnet |
+| **Motivation Engineer** | Emotional | Makes boring tasks interesting (speedruns, streaks, rewards) | Gemini Flash |
+| **Pattern Analyst** | Reflection | Finds hidden correlations in task history | Gemini Flash |
+| **Reflector** | Reflection | Reviews plans for blind spots | Gemini Flash |
+| **Session Summarizer** | Utility | Compresses session into a narrative summary on shutdown | Gemini Flash |
+
+---
+
+## 📦 Installation
 
 ### Prerequisites
-- Python 3.10+
-- Node.js 18+ (for Dashboard)
-- API Keys: `GOOGLE_API_KEY` (Gemini), `ANTHROPIC_API_KEY` (Claude)
 
-### Installation
-1.  **Clone the repo**:
-    ```bash
-    git clone https://github.com/yourusername/ADHD-OS.git
-    cd ADHD-OS
-    ```
-2.  **Install Python dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-3.  **Setup Dashboard** (Optional but recommended):
-    ```bash
-    cd adhd_os/dashboard/frontend
-    npm install
-    ```
+- **Python 3.10+**
+- **Node.js 18+** (only if using the dashboard)
+- API keys for [Google AI (Gemini)](https://aistudio.google.com/apikey) and [Anthropic (Claude)](https://console.anthropic.com/)
 
-### Usage
+### Step-by-Step
 
-#### 1. Run the CLI Agent
-This is the core experience.
+```bash
+# 1. Clone
+git clone https://github.com/vjdipaola/adhd-os.git
+cd adhd-os
+
+# 2. Install Python dependencies
+pip install -r requirements.txt
+
+# 3. Set API keys
+# Linux / macOS:
+export GOOGLE_API_KEY="your-key"
+export ANTHROPIC_API_KEY="your-key"
+
+# Windows (Command Prompt):
+set GOOGLE_API_KEY=your-key
+set ANTHROPIC_API_KEY=your-key
+
+# Windows (PowerShell):
+$env:GOOGLE_API_KEY="your-key"
+$env:ANTHROPIC_API_KEY="your-key"
+```
+
+### Docker (Alternative)
+
+```bash
+docker build -t adhd-os .
+docker run -it \
+  -e GOOGLE_API_KEY="your-key" \
+  -e ANTHROPIC_API_KEY="your-key" \
+  adhd-os
+```
+
+---
+
+## 🚀 Usage
+
+### CLI (Core Experience)
+
 ```bash
 python -m adhd_os.main
 ```
-**Commands to try:**
-- `"I'm stuck on the QBR report."` (Triggers Task Initiator)
-- `"Break down cleaning the garage."` (Triggers Decomposer)
-- `"Body double me for 30 mins."` (Triggers Body Double)
-- `"Review my plan for tomorrow."` (Triggers Reflector)
-- `"Shutdown"` (Runs Pattern Analysis & Summary)
 
-#### 2. Run the Dashboard
-Visualize your energy and history.
-**Backend:**
+Then just talk to it. Here are real commands you can try:
+
+```
+You: I'm stuck on the QBR report
+     → Task Initiator finds the barrier and gives you one tiny step
+
+You: Break down cleaning the garage
+     → Decomposer creates a checkpointed plan with time calibration
+
+You: Body double me for 30 mins
+     → Starts a deterministic check-in loop (with desktop notifications)
+
+You: I'm worried I'll fail the presentation
+     → Catastrophe Check reality-tests the anxiety
+
+You: My boss hates me after that email
+     → RSD Shield reframes the perceived rejection
+
+You: Make filing expenses fun
+     → Motivation Engineer suggests speedruns, streaks, or rewards
+
+You: How long will this coding task take? I think 20 minutes
+     → Time Calibrator applies your dynamic multiplier
+
+You: Review my plan for tomorrow
+     → Reflector sanity-checks for blind spots
+
+You: morning activation
+     → Asks energy level, medication time, priorities → builds day structure
+
+You: shutdown
+     → Runs pattern analysis, summarizes session, saves state
+
+You: quit
+     → Exits immediately
+```
+
+### Dashboard (Optional)
+
+Visualize your energy levels, task history, and session data.
+
+**Start the backend:**
 ```bash
 uvicorn adhd_os.dashboard.backend:app --reload --port 8000
 ```
-**Frontend:**
+
+**Start the frontend:**
 ```bash
 cd adhd_os/dashboard/frontend
+npm install   # first time only
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
 
-## 🛡️ Safety & Privacy
-- **Local First**: Your data (tasks, journals) lives in a local SQLite database (`adhd_os.db`).
-- **Crisis Intervention**: A hard-coded safety layer detects crisis keywords and provides immediate resources (988/Crisis Text Line) without LLM latency.
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
+---
 
 ## ⚙️ Configuration
-Set these environment variables in your `.env` or shell:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `GOOGLE_API_KEY` | Required for Gemini models. | - |
-| `ANTHROPIC_API_KEY` | Required for Claude models. | - |
-| `ADHD_OS_MODEL_MODE` | `production` (fast/cheap), `quality` (smarter), or `ab_test`. | `production` |
+Set these as environment variables (or in a `.env` file):
 
-## 🔧 Troubleshooting
-- **Notifications not showing?**
-  - Ensure `plyer` is installed. On Linux, you may need `libnotify-bin`.
-  - On macOS, allow Terminal to send notifications in System Settings.
-- **"ImportError: List"**?
-  - Ensure you are running Python 3.10+.
-- **Database locked?**
-  - Only one process can write to `adhd_os.db` at a time. Ensure no other instances are running.
+| Variable | Required | Description | Default |
+|----------|----------|-------------|---------|
+| `GOOGLE_API_KEY` | Yes | API key for Google Gemini models | — |
+| `ANTHROPIC_API_KEY` | Yes | API key for Anthropic Claude models | — |
+| `ADHD_OS_MODEL_MODE` | No | `production` (fast/cheap), `quality` (smarter), or `ab_test` (random) | `production` |
+
+**Model mode details:**
+
+- **`production`** — Uses Gemini Flash for everything including decomposition. Fastest and cheapest.
+- **`quality`** — Uses Claude Opus for task decomposition. Better plans, higher cost.
+- **`ab_test`** — Randomly picks between production and quality for decomposition (useful for comparing results).
+
+---
 
 ## 📂 Project Structure
+
 ```
 ADHD-OS/
 ├── adhd_os/
-│   ├── agents/          # Specialist agents (activation, emotional, etc.)
-│   ├── dashboard/       # React frontend + FastAPI backend
-│   ├── infrastructure/  # DB, Logging, Event Bus
-│   ├── tools/           # Tools for agents (time, state, files)
-│   ├── config.py        # Model configuration
-│   ├── main.py          # CLI Entry point
-│   └── state.py         # User state management
-├── tests/               # Integration tests
-├── adhd_os.db           # Local SQLite database (auto-created)
-└── requirements.txt     # Python dependencies
+│   ├── agents/             # Specialist agents
+│   │   ├── activation.py   #   Task Initiator, Decomposer, Body Double
+│   │   ├── emotional.py    #   Catastrophe Check, RSD Shield, Motivation
+│   │   ├── orchestrator.py #   Root orchestrator + Session Summarizer
+│   │   ├── pattern_analysis.py
+│   │   ├── reflector.py    #   Plan reviewer
+│   │   └── temporal.py     #   Time Calibrator, Calendar, Focus Timer
+│   ├── dashboard/
+│   │   ├── backend.py      # FastAPI API (stats, history, sessions)
+│   │   └── frontend/       # React + Vite app
+│   ├── infrastructure/
+│   │   ├── cache.py        # Semantic task cache
+│   │   ├── database.py     # SQLite persistence
+│   │   ├── event_bus.py    # Async event system
+│   │   ├── logging.py      # Structured logging
+│   │   ├── machines.py     # Body Double & Focus Timer state machines
+│   │   └── persistence.py  # Session persistence (Google ADK)
+│   ├── models/
+│   │   ├── message.py      # Message schema
+│   │   └── schemas.py      # Pydantic models
+│   ├── tools/
+│   │   └── common.py       # All agent tools (state, time, calibration, etc.)
+│   ├── config.py           # Model registry and mode selection
+│   ├── main.py             # CLI entry point
+│   └── state.py            # User state (energy, medication, multiplier)
+├── tests/                  # Tests
+├── logs/                   # Runtime logs
+├── adhd_os.db              # SQLite database (auto-created)
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
-## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+---
 
-## 🤝 Contributing
-We welcome PRs! Please see `CONTRIBUTING.md` (coming soon).
+## ❓ FAQ & Troubleshooting
+
+### FAQ
+
+**Q: Do I need both API keys?**
+A: The system will start with only `GOOGLE_API_KEY`, but agents that use Claude (Task Initiator, Catastrophe Check, RSD Shield, and quality-mode Decomposer) will fail. For the full experience, set both.
+
+**Q: Does it send my data anywhere?**
+A: Your task history, journal, and state live in a local SQLite file (`adhd_os.db`). The only network calls are to the LLM APIs (Google Gemini and Anthropic Claude) for agent responses.
+
+**Q: What's the "dynamic multiplier"?**
+A: A real-time adjustment to your time estimates based on your current energy level, medication peak window, and time of day. It starts at 1.5× and adjusts up or down automatically.
+
+**Q: Can I use it without the dashboard?**
+A: Yes. The CLI (`python -m adhd_os.main`) is the core experience. The dashboard is optional.
+
+**Q: What does "morning activation" do?**
+A: It asks your energy level (1–10), medication time, top 3 priorities, and any blockers — then structures your day around your peak focus window.
+
+### Troubleshooting
+
+**Notifications not showing?**
+- Ensure `plyer` is installed (`pip install plyer`).
+- Linux: you may need `libnotify-bin` (`sudo apt install libnotify-bin`).
+- macOS: allow Terminal to send notifications in System Settings → Notifications.
+
+**`ImportError` or syntax errors?**
+- Ensure Python 3.10+ (`python --version`). This project uses features not available in older versions.
+
+**"Database locked" error?**
+- Only one process can write to `adhd_os.db` at a time. Make sure no other instance of ADHD-OS or the dashboard backend is running.
+
+**Agent returns empty / `[Processing...]`?**
+- Check that your API keys are set and valid.
+- Check `logs/` for detailed error output.
+
+**Dashboard won't start?**
+- Backend: make sure port 8000 is free (`uvicorn adhd_os.dashboard.backend:app --port 8000`).
+- Frontend: run `npm install` in `adhd_os/dashboard/frontend/` first, then `npm run dev`.
 
 ---
+
+## 🛡️ Safety & Privacy
+
+- **Local-first**: All data lives in `adhd_os.db` (SQLite). No cloud storage, no accounts.
+- **Crisis intervention**: A hard-coded safety layer detects crisis keywords and immediately provides 988 Suicide & Crisis Lifeline and Crisis Text Line resources — no LLM latency, no AI interpretation.
+- **LLM calls**: The only data sent externally is your conversation text, sent to Google Gemini and Anthropic Claude APIs for agent responses.
+
+---
+
+## 🤝 Contributing
+
+PRs welcome! Please open an issue first to discuss what you'd like to change.
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
 *Built with ❤️ (and hyperfocus) by Vince.*
