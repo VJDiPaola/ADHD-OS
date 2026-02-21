@@ -1,4 +1,4 @@
-import os
+import json
 import sqlite3
 from typing import List, Dict, Any
 from fastapi import FastAPI, HTTPException
@@ -29,8 +29,8 @@ class StatsResponse(BaseModel):
     current_multiplier: float
 
 class TaskHistoryItem(BaseModel):
-    task_id: str
-    description: str
+    id: int
+    task_type: str
     completed_at: str
     duration_minutes: float
 
@@ -40,19 +40,24 @@ async def get_stats():
     cursor = conn.cursor()
     
     # Get current energy and multiplier
-    cursor.execute("SELECT key, value FROM user_state WHERE key IN ('energy_level', 'dynamic_multiplier')")
+    cursor.execute("SELECT key, value FROM user_state WHERE key IN ('energy_level', 'base_multiplier')")
     rows = cursor.fetchall()
-    state = {row['key']: row['value'] for row in rows}
+    state = {}
+    for row in rows:
+        try:
+            state[row['key']] = json.loads(row['value'])
+        except (json.JSONDecodeError, TypeError):
+            pass
     
-    # Get tasks completed today
-    cursor.execute("SELECT COUNT(*) as count FROM task_history WHERE date(completed_at) = date('now')")
+    # Get tasks completed today (use localtime to match Python's datetime.now() timestamps)
+    cursor.execute("SELECT COUNT(*) as count FROM task_history WHERE date(timestamp) = date('now', 'localtime')")
     task_count = cursor.fetchone()['count']
     
     conn.close()
     
     return StatsResponse(
         current_energy=int(state.get('energy_level', 5)),
-        current_multiplier=float(state.get('dynamic_multiplier', 1.0)),
+        current_multiplier=float(state.get('base_multiplier', 1.5)),
         tasks_completed_today=task_count
     )
 
@@ -62,9 +67,9 @@ async def get_history():
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT task_id, description, completed_at, actual_duration 
+        SELECT id, task_type, timestamp, actual_minutes 
         FROM task_history 
-        ORDER BY completed_at DESC 
+        ORDER BY timestamp DESC 
         LIMIT 50
     """)
     rows = cursor.fetchall()
@@ -72,10 +77,10 @@ async def get_history():
     history = []
     for row in rows:
         history.append(TaskHistoryItem(
-            task_id=row['task_id'],
-            description=row['description'],
-            completed_at=row['completed_at'],
-            duration_minutes=float(row['actual_duration'] or 0)
+            id=row['id'],
+            task_type=row['task_type'],
+            completed_at=row['timestamp'],
+            duration_minutes=float(row['actual_minutes'] or 0)
         ))
         
     conn.close()
@@ -86,7 +91,7 @@ async def get_sessions():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT id, created_at, last_update_time FROM sessions ORDER BY last_update_time DESC LIMIT 10")
+    cursor.execute("SELECT id, created_at, last_updated_at FROM sessions ORDER BY last_updated_at DESC LIMIT 10")
     rows = cursor.fetchall()
     
     sessions = []
@@ -94,7 +99,7 @@ async def get_sessions():
         sessions.append({
             "id": row['id'],
             "created_at": row['created_at'],
-            "last_active": row['last_update_time']
+            "last_active": row['last_updated_at']
         })
         
     conn.close()
