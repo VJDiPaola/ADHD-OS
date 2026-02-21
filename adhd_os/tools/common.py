@@ -226,11 +226,11 @@ def get_recent_history(limit: int = 50) -> List[Dict]:
 @FunctionTool
 def safe_list_dir(path: str = ".") -> List[str]:
     """Lists files in the project directory (read-only)."""
-    import os
-    base_path = os.getcwd()
-    target_path = os.path.abspath(os.path.join(base_path, path))
+    from pathlib import Path
+    base_path = Path.cwd().resolve()
+    target_path = (base_path / path).resolve()
     
-    if not target_path.startswith(base_path):
+    if not target_path.is_relative_to(base_path):
         return ["Error: Access denied. Stay within project root."]
     
     try:
@@ -241,11 +241,11 @@ def safe_list_dir(path: str = ".") -> List[str]:
 @FunctionTool
 def safe_read_file(path: str) -> str:
     """Reads a file from the project directory (read-only)."""
-    import os
-    base_path = os.getcwd()
-    target_path = os.path.abspath(os.path.join(base_path, path))
+    from pathlib import Path
+    base_path = Path.cwd().resolve()
+    target_path = (base_path / path).resolve()
     
-    if not target_path.startswith(base_path):
+    if not target_path.is_relative_to(base_path):
         return "Error: Access denied. Stay within project root."
     
     try:

@@ -101,7 +101,7 @@ function App() {
               <div key={session.id} className="session-item">
                 <div style={{ fontWeight: 600 }}>Session {session.id.slice(0, 8)}</div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Last active: {new Date(session.last_active).toLocaleDateString()}
+                  Last active: {session.last_active ? new Date(session.last_active.replace(' ', 'T')).toLocaleDateString() : 'Unknown'}
                 </div>
               </div>
             ))}
