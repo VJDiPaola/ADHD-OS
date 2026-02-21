@@ -1,13 +1,60 @@
 import asyncio
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any, List
 
 from google.adk.tools import FunctionTool
 
+logger = logging.getLogger(__name__)
+
 from adhd_os.state import USER_STATE
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.cache import TASK_CACHE
 from adhd_os.infrastructure.machines import BODY_DOUBLE, FOCUS_TIMER
+
+
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
+def capture_event_loop():
+    """Call from the main async entry point to store a reference to the event loop."""
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
+
+
+def _fire_and_forget(coro):
+    """Safely schedule a coroutine as a background task."""
+    try:
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(coro)
+        task.add_done_callback(_handle_task_exception)
+        return
+    except RuntimeError:
+        pass
+
+    # Fallback: running in a worker thread — use the stored main loop
+    if _main_loop is not None and _main_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, _main_loop)
+        future.add_done_callback(lambda f: _handle_future_exception(f))
+    else:
+        logger.critical("No running asyncio loop — background task dropped: %s", coro)
+
+
+def _handle_future_exception(future):
+    """Handle exceptions from run_coroutine_threadsafe futures."""
+    try:
+        future.result()
+    except Exception as exc:
+        logger.error("Background task failed: %s", exc, exc_info=exc)
+
+
+def _handle_task_exception(task):
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Background task failed: %s", exc, exc_info=exc)
+
 
 @FunctionTool
 def get_current_time() -> Dict:
@@ -48,7 +95,7 @@ def update_user_state(
     if energy_level is not None:
         USER_STATE.energy_level = max(1, min(10, energy_level))
         changes.append(f"energy={energy_level}")
-        asyncio.create_task(EVENT_BUS.publish(EventType.ENERGY_UPDATED, {"level": energy_level}))
+        _fire_and_forget(EVENT_BUS.publish(EventType.ENERGY_UPDATED, {"level": energy_level}))
     
     if medication_taken:
         USER_STATE.medication_time = datetime.now()
@@ -137,7 +184,7 @@ def log_task_completion(task_type: str, estimated_minutes: int, actual_minutes: 
     
     ratio = actual_minutes / estimated_minutes if estimated_minutes > 0 else 1.0
     
-    asyncio.create_task(EVENT_BUS.publish(EventType.TASK_COMPLETED, {
+    _fire_and_forget(EVENT_BUS.publish(EventType.TASK_COMPLETED, {
         "task_type": task_type,
         "estimated": estimated_minutes,
         "actual": actual_minutes,
@@ -162,16 +209,14 @@ def log_activation_attempt(task: str, barrier_type: str, intervention: str) -> D
         "in_peak": USER_STATE.is_in_peak_window
     }
     
-    asyncio.create_task(EVENT_BUS.publish(EventType.TASK_STARTED, entry))
+    _fire_and_forget(EVENT_BUS.publish(EventType.TASK_STARTED, entry))
     
     return {"logged": True, "entry": entry}
 
 @FunctionTool
 def activate_body_double(task: str, duration_minutes: int, checkin_interval: int = 10) -> Dict:
     """Activates deterministic body double machine."""
-    # Run synchronously but fire off async task
-    loop = asyncio.get_event_loop()
-    result = loop.create_task(BODY_DOUBLE.start_session(task, duration_minutes, checkin_interval))
+    _fire_and_forget(BODY_DOUBLE.start_session(task, duration_minutes, checkin_interval))
     return {"status": "activating", "message": f"Starting body double for '{task}'..."}
 
 @FunctionTool
@@ -182,8 +227,7 @@ def get_body_double_status() -> Dict:
 @FunctionTool
 def set_hyperfocus_guardrail(minutes: int, reason: str) -> Dict:
     """Sets hard stop for hyperfocus protection."""
-    loop = asyncio.get_event_loop()
-    loop.create_task(FOCUS_TIMER.set_hard_stop(minutes, reason))
+    _fire_and_forget(FOCUS_TIMER.set_hard_stop(minutes, reason))
     return {"status": "setting", "message": f"Setting {minutes} minute guardrail..."}
 
 @FunctionTool

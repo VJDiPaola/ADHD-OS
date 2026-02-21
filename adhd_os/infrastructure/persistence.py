@@ -59,8 +59,8 @@ class SqliteSessionService(BaseSessionService):
         with DB._get_conn() as conn:
             # Get session
             cursor = conn.execute(
-                "SELECT user_id, app_name, created_at, last_updated_at, state_json FROM sessions WHERE id = ?",
-                (session_id,)
+                "SELECT user_id, app_name, created_at, last_updated_at, state_json FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
+                (session_id, app_name, user_id)
             )
             row = cursor.fetchone()
             if not row:
@@ -103,16 +103,22 @@ class SqliteSessionService(BaseSessionService):
         """Lists sessions for user."""
         with DB._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT id, created_at FROM sessions WHERE user_id = ? ORDER BY created_at DESC",
-                (user_id,)
+                "SELECT id, created_at FROM sessions WHERE user_id = ? AND app_name = ? ORDER BY created_at DESC",
+                (user_id, app_name)
             )
             return [{"id": r[0], "created_at": r[1]} for r in cursor.fetchall()]
         
     async def delete_session(self, app_name: str, user_id: str, session_id: str):
         """Deletes a session."""
         with DB._get_conn() as conn:
-            conn.execute("DELETE FROM events WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            conn.execute(
+                "DELETE FROM events WHERE session_id = ? AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?)",
+                (session_id, session_id, app_name, user_id)
+            )
+            conn.execute(
+                "DELETE FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
+                (session_id, app_name, user_id)
+            )
             
     async def append_event(self, session: Session, event: Event) -> Event:
         """Appends an event to DB."""

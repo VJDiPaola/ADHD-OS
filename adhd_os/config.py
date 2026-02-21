@@ -29,4 +29,12 @@ def get_model(role: str, mode: ModelMode = ModelMode.PRODUCTION) -> str:
         return MODELS["decomposer_fast"]
     return MODELS.get(role, "gemini-2.0-flash")
 
-MODEL_MODE = ModelMode(os.environ.get("ADHD_OS_MODEL_MODE", "production"))
+_mode_raw = os.environ.get("ADHD_OS_MODEL_MODE", "production")
+try:
+    MODEL_MODE = ModelMode(_mode_raw)
+except ValueError:
+    import logging
+    logging.getLogger(__name__).warning(
+        "Unknown ADHD_OS_MODEL_MODE '%s', falling back to 'production'", _mode_raw
+    )
+    MODEL_MODE = ModelMode.PRODUCTION

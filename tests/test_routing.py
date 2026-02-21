@@ -50,8 +50,9 @@ async def test_routing():
         ]
         
         passed = 0
+        failed = []
         for user_input, expected_agent in test_cases:
-            print(f"\nTesting: '{user_input}'")
+            print(f"\nTesting: '{user_input}' (expect → {expected_agent})")
             
             message = Message(content=user_input)
             
@@ -63,16 +64,21 @@ async def test_routing():
                     new_message=message
                 ):
                     print(f"Response: {response.content[:100]}...")
-                    if response and response.content:
-                        print("Response received")
-                        passed += 1
-                        break
+                    assert response and response.content, (
+                        f"Empty response for '{user_input}' (expected {expected_agent})"
+                    )
+                    passed += 1
+                    break
+            except AssertionError as e:
+                print(f"Assertion failed: {e}")
+                failed.append((user_input, expected_agent, str(e)))
             except Exception as e:
                 print(f"Error: {e}")
-                # If we get here, it might be because we didn't mock deep enough, 
-                # but let's see if the mock works.
+                failed.append((user_input, expected_agent, str(e)))
                 
         print(f"\nResult: {passed}/{len(test_cases)} tests passed.")
+        assert not failed, f"Routing failures: {failed}"
+        assert passed == len(test_cases), f"Only {passed}/{len(test_cases)} tests passed"
 
 if __name__ == "__main__":
     asyncio.run(test_routing())

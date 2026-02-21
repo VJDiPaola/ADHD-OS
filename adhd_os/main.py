@@ -11,9 +11,13 @@ from adhd_os.infrastructure.persistence import SqliteSessionService
 from adhd_os.infrastructure.logging import logger
 from adhd_os.agents.orchestrator import orchestrator
 from adhd_os.models.message import Message
+from adhd_os.tools.common import capture_event_loop
 
 async def run_adhd_os():
     """Main interaction loop for ADHD-OS v2.1."""
+    
+    # Store event loop reference for threaded tool execution
+    capture_event_loop()
     
     # Initialize state from DB
     USER_STATE.load_from_db()
@@ -106,17 +110,21 @@ async def run_adhd_os():
                 break
             
             if user_input.lower() == 'shutdown':
-                print("\n Summarizing session...")
-                # In production, run session_summarizer here
+                # Route through orchestrator for pattern analysis + summarization
+                async for response in runner.run_async(
+                    user_id=USER_STATE.user_id,
+                    session_id=session.id,
+                    new_message=Message(content=user_input)
+                ):
+                    if response and response.content:
+                        print(f"\nADHD-OS: {response.content}")
+
                 await EVENT_BUS.publish(EventType.SESSION_SUMMARIZED, {
                     "timestamp": datetime.now().isoformat(),
                     "session_id": session.id
                 })
-                
-                # Save persistent state
                 USER_STATE.save_to_db()
-                
-                print(" Session saved. Work mode complete!")
+                print("\n Session saved. Work mode complete!")
                 break
             
             # Safety / Crisis Check
