@@ -27,7 +27,7 @@ def get_model(role: str, mode: ModelMode = ModelMode.PRODUCTION) -> str:
         return MODELS["decomposer_quality"]
     elif role == "decomposer":
         return MODELS["decomposer_fast"]
-    return MODELS.get(role, "gemini-2.0-flash")
+    return MODELS.get(role, "gemini/gemini-2.0-flash")
 
 _mode_raw = os.environ.get("ADHD_OS_MODEL_MODE", "production")
 try:

@@ -1,8 +1,11 @@
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 from enum import Enum
 from adhd_os.infrastructure.event_bus import EventBus, EventType
+
+DEMO_MODE = os.environ.get("ADHD_OS_DEMO_MODE", "").lower() in ("1", "true", "yes")
 
 class BodyDoubleState(Enum):
     """States for the body double state machine."""
@@ -60,14 +63,13 @@ class BodyDoubleMachine:
         interval_seconds = interval_minutes * 60
         total_checkins = self.duration_minutes // interval_minutes
         
-        # For demo, use shorter intervals (2 seconds = 1 "interval")
-        demo_interval = 3  # seconds
+        sleep_seconds = 3 if DEMO_MODE else interval_seconds
         
         for i in range(total_checkins):
             if self.state != BodyDoubleState.ACTIVE:
                 break
             
-            await asyncio.sleep(demo_interval)
+            await asyncio.sleep(sleep_seconds)
             self.checkin_count += 1
             
             # Generate check-in message (no LLM needed!)
@@ -201,14 +203,13 @@ class FocusTimerMachine:
             (total_minutes, "🛑 HARD STOP. Save your work. Step away.")
         ]
         
-        # Demo mode: compress time
-        demo_multiplier = 0.1  # 1 minute = 0.1 seconds for demo
+        seconds_per_minute = 0.1 if DEMO_MODE else 60
         
         elapsed = 0
         for warning_time, message in warnings:
             if warning_time <= 0:
                 continue
-            wait_time = (warning_time - elapsed) * demo_multiplier
+            wait_time = (warning_time - elapsed) * seconds_per_minute
             await asyncio.sleep(max(0.5, wait_time))
             print(f"\n{message}\n")
             elapsed = warning_time

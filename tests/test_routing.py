@@ -63,7 +63,6 @@ async def test_routing():
                     session_id=session.id,
                     new_message=message
                 ):
-                    print(f"Response: {response.content[:100]}...")
                     assert response and response.content, (
                         f"Empty response for '{user_input}' (expected {expected_agent})"
                     )

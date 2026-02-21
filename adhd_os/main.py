@@ -98,9 +98,11 @@ async def run_adhd_os():
     except ImportError:
         logger.warning("plyer not installed - notifications disabled")
     
+    loop = asyncio.get_running_loop()
+
     while True:
         try:
-            user_input = input("\nYou: ").strip()
+            user_input = (await loop.run_in_executor(None, input, "\nYou: ")).strip()
             
             if not user_input:
                 continue

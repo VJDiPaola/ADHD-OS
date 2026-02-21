@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Any, Callable
 from enum import Enum
@@ -22,7 +23,7 @@ class EventBus:
     """
     def __init__(self):
         self._subscribers: Dict[EventType, List[Callable]] = {}
-        self._event_log: List[Dict] = []
+        self._event_log: deque = deque(maxlen=1000)
     
     def subscribe(self, event_type: EventType, handler: Callable):
         """Subscribe a handler to an event type."""
@@ -53,6 +54,6 @@ class EventBus:
     
     def get_recent_events(self, count: int = 10) -> List[Dict]:
         """Returns recent events for context."""
-        return self._event_log[-count:]
+        return list(self._event_log)[-count:]
 
 EVENT_BUS = EventBus()
