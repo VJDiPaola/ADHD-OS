@@ -110,7 +110,7 @@ Hard-coded keyword detection in `main.py` bypasses LLMs entirely to show crisis 
 - Use `python3 -m uvicorn` not bare `uvicorn` — the pip-installed binary may not be on `PATH`.
 - `tests/test_routing.py` currently fails (all 7 cases) due to a breaking API change in `google-adk` >=1.x where `Runner.run_async()` returns a coroutine instead of an async generator. The test is not broken by agent code changes — it is a pre-existing upstream compatibility issue.
 - The CLI starts and displays its prompt without API keys, but any user input that triggers an agent will fail. Tests mock LLM calls and do not need API keys.
-- The `GOOGLE_API_KEY` free tier works with `gemini-3-flash-preview` (5 RPM limit). Heavy sequential agent calls may hit rate limits; wait ~25s and retry.
+- The `GOOGLE_API_KEY` free tier works with `gemini-3-flash-preview` but has strict limits: 5 RPM and 20 requests/day. A single CLI interaction uses 3-5 API calls (orchestrator routing + sub-agent tool calls + final response), so the daily quota supports only ~4-6 full interactions. Wait ~25s between interactions to avoid per-minute limits. For sustained development, use a paid-tier key.
 - The CLI is interactive (`input()` loop). It cannot be driven via pipe reliably because it has a "Resume session?" prompt that consumes the first line of piped input. Use a real TTY (e.g., `computerUse` subagent or background terminal) for interactive testing.
 - Frontend lint: `npx eslint .` from `adhd_os/dashboard/frontend/`. No Python linter is configured in the repo.
 - Frontend build: `npm run build` from `adhd_os/dashboard/frontend/`.
