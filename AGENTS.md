@@ -93,3 +93,22 @@ Hard-coded keyword detection in `main.py` bypasses LLMs entirely to show crisis 
 - **No LLM for Accountability**: Body double check-ins are deterministic, not LLM-generated, for reliability.
 - **Event-Driven**: Use `EVENT_BUS.publish()` for cross-component communication rather than direct calls.
 - **Local-First**: All data in `adhd_os.db`. Only network calls are to LLM APIs.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+| Service | How to start | Port | Notes |
+|---------|-------------|------|-------|
+| CLI (core) | `python3 -m adhd_os.main` | — | Requires `GOOGLE_API_KEY` and `ANTHROPIC_API_KEY` env vars |
+| Dashboard backend | `python3 -m uvicorn adhd_os.dashboard.backend:app --reload --port 8000` | 8000 | Run from repo root |
+| Dashboard frontend | `npm run dev` (from `adhd_os/dashboard/frontend/`) | 5173 | Connects to backend on :8000 |
+
+### Gotchas
+
+- Use `python3` not `python` — the VM has no `python` alias.
+- Use `python3 -m uvicorn` not bare `uvicorn` — the pip-installed binary may not be on `PATH`.
+- `tests/test_routing.py` currently fails (all 7 cases) due to a breaking API change in `google-adk` >=1.x where `Runner.run_async()` returns a coroutine instead of an async generator. The test is not broken by agent code changes — it is a pre-existing upstream compatibility issue.
+- The CLI starts and displays its prompt without API keys, but any user input that triggers an agent will fail. Tests mock LLM calls and do not need API keys.
+- Frontend lint: `npx eslint .` from `adhd_os/dashboard/frontend/`. No Python linter is configured in the repo.
+- Frontend build: `npm run build` from `adhd_os/dashboard/frontend/`.
