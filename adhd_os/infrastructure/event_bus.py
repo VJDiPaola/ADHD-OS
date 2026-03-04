@@ -35,7 +35,7 @@ class EventBus:
         self._subscribers[event_type].append(handler)
     
     async def publish(self, event_type: EventType, data: Dict[str, Any]):
-        """Publish an event to all subscribers."""
+        """Publish an event to all subscribers and persist to DB."""
         event = {
             "type": event_type.value,
             "data": data,
@@ -43,6 +43,13 @@ class EventBus:
         }
         self._event_log.append(event)
         logger.debug("[EVENT] %s: %s", event_type.value, json.dumps(data, default=str))
+
+        # Persist to DB for cross-session pattern analysis
+        try:
+            from adhd_os.infrastructure.database import DB
+            DB.persist_bus_event(event_type.value, json.dumps(data, default=str))
+        except Exception:
+            pass  # best-effort; don't break the event pipeline
 
         # Dispatch to subscribers
         if event_type in self._subscribers:

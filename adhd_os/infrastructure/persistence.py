@@ -1,4 +1,6 @@
+import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, Any
 from datetime import datetime
 
@@ -6,6 +8,9 @@ from google.adk.sessions import BaseSessionService, Session
 from google.adk.sessions.base_session_service import ListSessionsResponse
 from google.adk.events import Event
 from adhd_os.infrastructure.database import DB
+
+# Shared executor for offloading blocking sqlite calls.
+_db_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="db")
 
 
 class SqliteSessionService(BaseSessionService):
@@ -37,15 +42,18 @@ class SqliteSessionService(BaseSessionService):
             last_update_time=now.timestamp(),
         )
 
-        with DB.get_connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO sessions (id, user_id, app_name, created_at, last_updated_at, state_json)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (session.id, user_id, app_name, now, now, json.dumps(session.state)),
-            )
+        def _write():
+            with DB.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO sessions (id, user_id, app_name, created_at, last_updated_at, state_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (session.id, user_id, app_name, now, now, json.dumps(session.state)),
+                )
 
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_db_executor, _write)
         return session
 
     async def get_session(
@@ -57,114 +65,126 @@ class SqliteSessionService(BaseSessionService):
         config: Optional[Any] = None,
     ) -> Optional[Session]:
         """Retrieves a session from DB."""
-        with DB.get_connection() as conn:
-            cursor = conn.execute(
-                "SELECT user_id, app_name, created_at, last_updated_at, state_json "
-                "FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
-                (session_id, app_name, user_id),
-            )
-            row = cursor.fetchone()
-            if not row:
-                return None
+        def _read():
+            with DB.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT user_id, app_name, created_at, last_updated_at, state_json "
+                    "FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
+                    (session_id, app_name, user_id),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
 
-            # Get events
-            cursor = conn.execute(
-                "SELECT type, data_json, timestamp FROM events "
-                "WHERE session_id = ? ORDER BY id ASC",
-                (session_id,),
-            )
-            events = []
-            for e_row in cursor.fetchall():
-                if e_row[0] == "adk_event":
-                    events.append(Event.model_validate_json(e_row[1]))
+                cursor = conn.execute(
+                    "SELECT type, data_json, timestamp FROM events "
+                    "WHERE session_id = ? ORDER BY id ASC",
+                    (session_id,),
+                )
+                events = []
+                for e_row in cursor.fetchall():
+                    if e_row[0] == "adk_event":
+                        events.append(Event.model_validate_json(e_row[1]))
 
-            # last_updated_at from DB is timestamp string or datetime, convert to float
-            last_update = row[3]
-            if isinstance(last_update, str):
-                last_update_ts = datetime.fromisoformat(last_update).timestamp()
-            elif isinstance(last_update, datetime):
-                last_update_ts = last_update.timestamp()
-            else:
-                last_update_ts = float(last_update)
+                last_update = row[3]
+                if isinstance(last_update, str):
+                    last_update_ts = datetime.fromisoformat(last_update).timestamp()
+                elif isinstance(last_update, datetime):
+                    last_update_ts = last_update.timestamp()
+                else:
+                    last_update_ts = float(last_update)
 
-            return Session(
-                id=session_id,
-                app_name=row[1],
-                user_id=row[0],
-                state=json.loads(row[4]),
-                events=events,
-                last_update_time=last_update_ts,
-            )
+                return Session(
+                    id=session_id,
+                    app_name=row[1],
+                    user_id=row[0],
+                    state=json.loads(row[4]),
+                    events=events,
+                    last_update_time=last_update_ts,
+                )
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_db_executor, _read)
 
     async def list_sessions(
         self, *, app_name: str, user_id: Optional[str] = None
     ) -> ListSessionsResponse:
         """Lists sessions for user."""
-        with DB.get_connection() as conn:
-            if user_id:
-                cursor = conn.execute(
-                    "SELECT id, user_id, app_name, created_at, last_updated_at, state_json "
-                    "FROM sessions WHERE user_id = ? AND app_name = ? ORDER BY created_at DESC",
-                    (user_id, app_name),
-                )
-            else:
-                cursor = conn.execute(
-                    "SELECT id, user_id, app_name, created_at, last_updated_at, state_json "
-                    "FROM sessions WHERE app_name = ? ORDER BY created_at DESC",
-                    (app_name,),
-                )
-            sessions = []
-            for r in cursor.fetchall():
-                last_update = r[4]
-                if isinstance(last_update, str):
-                    ts = datetime.fromisoformat(last_update).timestamp()
-                elif isinstance(last_update, datetime):
-                    ts = last_update.timestamp()
-                else:
-                    ts = float(last_update) if last_update else 0.0
-                sessions.append(
-                    Session(
-                        id=r[0],
-                        app_name=r[2],
-                        user_id=r[1],
-                        state=json.loads(r[5]) if r[5] else {},
-                        events=[],
-                        last_update_time=ts,
+        def _read():
+            with DB.get_connection() as conn:
+                if user_id:
+                    cursor = conn.execute(
+                        "SELECT id, user_id, app_name, created_at, last_updated_at, state_json "
+                        "FROM sessions WHERE user_id = ? AND app_name = ? ORDER BY created_at DESC",
+                        (user_id, app_name),
                     )
-                )
-            return ListSessionsResponse(sessions=sessions)
+                else:
+                    cursor = conn.execute(
+                        "SELECT id, user_id, app_name, created_at, last_updated_at, state_json "
+                        "FROM sessions WHERE app_name = ? ORDER BY created_at DESC",
+                        (app_name,),
+                    )
+                sessions = []
+                for r in cursor.fetchall():
+                    last_update = r[4]
+                    if isinstance(last_update, str):
+                        ts = datetime.fromisoformat(last_update).timestamp()
+                    elif isinstance(last_update, datetime):
+                        ts = last_update.timestamp()
+                    else:
+                        ts = float(last_update) if last_update else 0.0
+                    sessions.append(
+                        Session(
+                            id=r[0],
+                            app_name=r[2],
+                            user_id=r[1],
+                            state=json.loads(r[5]) if r[5] else {},
+                            events=[],
+                            last_update_time=ts,
+                        )
+                    )
+                return ListSessionsResponse(sessions=sessions)
+
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_db_executor, _read)
 
     async def delete_session(
         self, *, app_name: str, user_id: str, session_id: str
     ) -> None:
         """Deletes a session."""
-        with DB.get_connection() as conn:
-            conn.execute(
-                "DELETE FROM events WHERE session_id = ? "
-                "AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?)",
-                (session_id, session_id, app_name, user_id),
-            )
-            conn.execute(
-                "DELETE FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
-                (session_id, app_name, user_id),
-            )
+        def _delete():
+            with DB.get_connection() as conn:
+                conn.execute(
+                    "DELETE FROM events WHERE session_id = ? "
+                    "AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?)",
+                    (session_id, session_id, app_name, user_id),
+                )
+                conn.execute(
+                    "DELETE FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
+                    (session_id, app_name, user_id),
+                )
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_db_executor, _delete)
 
     async def append_event(self, session: Session, event: Event) -> Event:
         """Appends an event to DB."""
-        with DB.get_connection() as conn:
-            conn.execute(
-                "INSERT INTO events (session_id, type, data_json, timestamp) VALUES (?, ?, ?, ?)",
-                (
-                    session.id,
-                    "adk_event",
-                    event.model_dump_json(),
-                    datetime.fromtimestamp(event.timestamp).isoformat(),
-                ),
-            )
-            conn.execute(
-                "UPDATE sessions SET last_updated_at = ? WHERE id = ?",
-                (datetime.now(), session.id),
-            )
+        event_json = event.model_dump_json()
+        ts_iso = datetime.fromtimestamp(event.timestamp).isoformat()
+        sid = session.id
 
+        def _write():
+            with DB.get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO events (session_id, type, data_json, timestamp) VALUES (?, ?, ?, ?)",
+                    (sid, "adk_event", event_json, ts_iso),
+                )
+                conn.execute(
+                    "UPDATE sessions SET last_updated_at = ? WHERE id = ?",
+                    (datetime.now(), sid),
+                )
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_db_executor, _write)
         session.events.append(event)
         return event

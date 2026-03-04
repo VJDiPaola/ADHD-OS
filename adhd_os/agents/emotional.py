@@ -6,9 +6,12 @@ from adhd_os.tools.common import (
     get_user_state, get_current_time, activate_body_double
 )
 
+from adhd_os.models.schemas import CatastropheAnalysis
+
 catastrophe_agent = LlmAgent(
     name="catastrophe_check_agent",
     model=LiteLlm(model=MODELS["emotional"]),  # Claude for empathy
+    output_schema=CatastropheAnalysis,
     
     description="""
     Reality-tests catastrophic thinking and anxiety spirals.
@@ -111,7 +114,7 @@ rsd_agent = LlmAgent(
 
 motivation_agent = LlmAgent(
     name="motivation_agent",
-    model=LiteLlm(model=MODELS["motivation"], api_key=None),  # Gemini Flash
+    model=LiteLlm(model=MODELS["motivation"]),  # Gemini Flash
     
     description="""
     Makes boring tasks interesting using ADHD interest-based strategies.

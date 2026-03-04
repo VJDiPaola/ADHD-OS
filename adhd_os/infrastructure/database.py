@@ -83,7 +83,31 @@ class DatabaseManager:
                     created_at TIMESTAMP
                 )
             """)
-            
+
+            # Bus Events Table (persistent event log)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS bus_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    data_json TEXT,
+                    timestamp TIMESTAMP
+                )
+            """)
+
+            # Indexes for performance
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_last_updated
+                ON sessions (last_updated_at)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_task_history_timestamp
+                ON task_history (timestamp)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_bus_events_type
+                ON bus_events (event_type, timestamp)
+            """)
+
             conn.commit()
     
     # --- User State Methods ---
@@ -177,6 +201,36 @@ class DatabaseManager:
                 
             ratios = [actual / est for est, actual in rows]
             return sum(ratios) / len(ratios)
+
+    def prune_old_sessions(self, max_age_days: int = 90) -> int:
+        """Deletes sessions and their events older than *max_age_days*. Returns count deleted."""
+        with self._get_conn() as conn:
+            from datetime import timedelta as _td
+            cutoff = datetime.now() - _td(days=max_age_days)
+            cutoff_iso = cutoff.isoformat()
+            # Delete orphaned events first
+            conn.execute(
+                "DELETE FROM events WHERE session_id IN "
+                "(SELECT id FROM sessions WHERE last_updated_at < ?)",
+                (cutoff_iso,),
+            )
+            cursor = conn.execute(
+                "DELETE FROM sessions WHERE last_updated_at < ?",
+                (cutoff_iso,),
+            )
+            deleted = cursor.rowcount
+            conn.commit()
+            return deleted
+
+    # --- Bus Event Persistence ---
+
+    def persist_bus_event(self, event_type: str, data_json: str):
+        """Writes an event-bus event to the persistent bus_events table."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO bus_events (event_type, data_json, timestamp) VALUES (?, ?, ?)",
+                (event_type, data_json, datetime.now().isoformat()),
+            )
 
     def get_recent_history(self, limit: int = 50) -> List[Dict]:
         """Retrieves recent task history for pattern analysis."""

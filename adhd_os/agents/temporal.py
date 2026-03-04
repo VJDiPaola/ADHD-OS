@@ -8,9 +8,12 @@ from adhd_os.tools.common import (
     activate_body_double, get_body_double_status
 )
 
+from adhd_os.models.schemas import TimeCalibration
+
 time_calibrator_agent = LlmAgent(
     name="time_calibrator_agent",
     model=LiteLlm(model=MODELS["temporal"]),  # Gemini Flash
+    output_schema=TimeCalibration,
     
     description="""
     Calibrates time estimates to counteract ADHD time blindness.
