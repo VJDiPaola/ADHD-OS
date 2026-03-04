@@ -121,6 +121,7 @@ def apply_time_calibration(estimated_minutes: int, task_type: Optional[str] = No
     Applies comprehensive time calibration.
     Uses dynamic multiplier and task-type-specific history when available.
     """
+    estimated_minutes = max(1, int(estimated_minutes))
     # Check for task-specific multiplier
     specific_mult = USER_STATE.get_task_type_multiplier(task_type) if task_type else None
     
@@ -180,6 +181,8 @@ def store_task_decomposition(task_description: str, plan_json: Dict) -> Dict:
 @FunctionTool
 def log_task_completion(task_type: str, estimated_minutes: int, actual_minutes: int) -> Dict:
     """Logs task completion for calibration learning."""
+    estimated_minutes = max(1, int(estimated_minutes))
+    actual_minutes = max(1, int(actual_minutes))
     USER_STATE.log_task_completion(task_type, estimated_minutes, actual_minutes)
     
     ratio = actual_minutes / estimated_minutes if estimated_minutes > 0 else 1.0
@@ -216,6 +219,8 @@ def log_activation_attempt(task: str, barrier_type: str, intervention: str) -> D
 @FunctionTool
 def activate_body_double(task: str, duration_minutes: int, checkin_interval: int = 10) -> Dict:
     """Activates deterministic body double machine."""
+    duration_minutes = max(5, min(480, int(duration_minutes)))
+    checkin_interval = max(1, min(duration_minutes, int(checkin_interval)))
     _fire_and_forget(BODY_DOUBLE.start_session(task, duration_minutes, checkin_interval))
     return {"status": "activating", "message": f"Starting body double for '{task}'..."}
 
@@ -227,45 +232,36 @@ def get_body_double_status() -> Dict:
 @FunctionTool
 def set_hyperfocus_guardrail(minutes: int, reason: str) -> Dict:
     """Sets hard stop for hyperfocus protection."""
+    minutes = max(5, min(480, int(minutes)))
     _fire_and_forget(FOCUS_TIMER.set_hard_stop(minutes, reason))
     return {"status": "setting", "message": f"Setting {minutes} minute guardrail..."}
 
 @FunctionTool
 def schedule_checkin(minutes_from_now: int, message: str) -> Dict:
-    """Schedules a future reminder/check-in."""
+    """Schedules a future reminder/check-in via a background asyncio task."""
+    minutes_from_now = max(1, min(480, int(minutes_from_now)))  # clamp 1-480
     checkin_time = datetime.now() + timedelta(minutes=minutes_from_now)
-    # In production, use Cloud Tasks or similar
+
+    async def _checkin_task():
+        await asyncio.sleep(minutes_from_now * 60)
+        await EVENT_BUS.publish(EventType.CHECKIN_DUE, {
+            "message": message,
+            "scheduled_for": checkin_time.isoformat(),
+        })
+
+    _fire_and_forget(_checkin_task())
+
     return {
         "scheduled": True,
         "time": checkin_time.strftime("%H:%M"),
-        "message": message
+        "message": message,
     }
 
 @FunctionTool
 def get_recent_history(limit: int = 50) -> List[Dict]:
     """Retrieves recent task history for pattern analysis."""
     from adhd_os.infrastructure.database import DB
-    with DB._get_conn() as conn:
-        cursor = conn.execute(
-            """
-            SELECT task_type, estimated_minutes, actual_minutes, energy_level, in_peak_window, timestamp 
-            FROM task_history 
-            ORDER BY timestamp DESC LIMIT ?
-            """,
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "type": r[0],
-                "est": r[1],
-                "act": r[2],
-                "energy": r[3],
-                "peak": bool(r[4]),
-                "date": r[5][:10]
-            }
-            for r in rows
-        ]
+    return DB.get_recent_history(limit)
 
 @FunctionTool
 def safe_list_dir(path: str = ".") -> List[str]:

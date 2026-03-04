@@ -47,5 +47,20 @@ def setup_logging(log_file: str = "logs/adhd_os.jsonl"):
 
     return logging.getLogger("adhd_os")
 
-# Global logger
-logger = setup_logging()
+# Lazy logger — initialized on first use or explicit call from main.
+_logger: logging.Logger | None = None
+
+
+def get_logger() -> logging.Logger:
+    """Return the application logger, initializing on first call."""
+    global _logger
+    if _logger is None:
+        _logger = setup_logging()
+    return _logger
+
+
+# Backwards-compatible module-level alias (lazy property via __getattr__).
+def __getattr__(name: str):
+    if name == "logger":
+        return get_logger()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

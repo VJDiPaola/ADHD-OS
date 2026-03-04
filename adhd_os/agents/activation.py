@@ -59,9 +59,12 @@ task_init_agent = LlmAgent(
     tools=[get_user_state, get_current_time, log_activation_attempt],
 )
 
+from adhd_os.models.schemas import DecompositionPlan
+
 decomposer_agent = LlmAgent(
     name="task_decomposer_agent",
     model=LiteLlm(model=get_model("decomposer", MODEL_MODE)),
+    output_schema=DecompositionPlan,
     
     description="""
     Breaks complex tasks into ADHD-friendly microscopic steps.

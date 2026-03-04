@@ -72,7 +72,7 @@ h1 {
   height: 120px;
   display: flex;
   align-items: center;
-  justify_content: center;
+  justify-content: center;
   overflow: hidden;
 }
 

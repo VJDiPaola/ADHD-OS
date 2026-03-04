@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY adhd_os/ adhd_os/
+COPY tests/ tests/
 COPY README.md .
 
 # Create sessions directory
