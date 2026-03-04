@@ -1,9 +1,12 @@
 import asyncio
 import json
+import logging
 from collections import deque
 from datetime import datetime
 from typing import Dict, List, Any, Callable
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 class EventType(Enum):
     """Typed events for the event bus."""
@@ -39,8 +42,8 @@ class EventBus:
             "timestamp": datetime.now().isoformat()
         }
         self._event_log.append(event)
-        print(f"⚡ [EVENT] {event_type.value}: {json.dumps(data, default=str)}")
-        
+        logger.debug("[EVENT] %s: %s", event_type.value, json.dumps(data, default=str))
+
         # Dispatch to subscribers
         if event_type in self._subscribers:
             for handler in self._subscribers[event_type]:
@@ -50,7 +53,7 @@ class EventBus:
                     else:
                         handler(data)
                 except Exception as e:
-                    print(f"⚠️ [EVENT ERROR] Handler failed: {e}")
+                    logger.error("[EVENT] Handler failed for %s: %s", event_type.value, e)
     
     def get_recent_events(self, count: int = 10) -> List[Dict]:
         """Returns recent events for context."""

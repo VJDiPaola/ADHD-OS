@@ -17,6 +17,10 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
+
+    def get_connection(self):
+        """Returns a new database connection. Caller is responsible for closing it."""
+        return self._get_conn()
     
     def _init_db(self):
         """Initialize database schema."""
@@ -122,10 +126,22 @@ class DatabaseManager:
                 (task_hash, description, plan_json, energy, datetime.now())
             )
 
-    def get_similar_tasks(self, keywords: List[str]) -> List[str]:
-        # Simple fetch all for now
+    def get_similar_tasks(self, keywords: List[str], limit: int = 50) -> List[str]:
+        """Returns task descriptions matching any keyword, with a row limit."""
         with self._get_conn() as conn:
-            cursor = conn.execute("SELECT task_description FROM task_cache")
+            if keywords:
+                conditions = " OR ".join(
+                    "task_description LIKE ?" for _ in keywords
+                )
+                params = [f"%{kw}%" for kw in keywords] + [limit]
+                cursor = conn.execute(
+                    f"SELECT task_description FROM task_cache WHERE {conditions} LIMIT ?",
+                    params,
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT task_description FROM task_cache LIMIT ?", (limit,)
+                )
             return [r[0] for r in cursor.fetchall()]
 
     # --- Task History Methods ---
@@ -161,6 +177,30 @@ class DatabaseManager:
                 
             ratios = [actual / est for est, actual in rows]
             return sum(ratios) / len(ratios)
+
+    def get_recent_history(self, limit: int = 50) -> List[Dict]:
+        """Retrieves recent task history for pattern analysis."""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT task_type, estimated_minutes, actual_minutes,
+                       energy_level, in_peak_window, timestamp
+                FROM task_history
+                ORDER BY timestamp DESC LIMIT ?
+                """,
+                (limit,)
+            )
+            return [
+                {
+                    "type": r[0],
+                    "est": r[1],
+                    "act": r[2],
+                    "energy": r[3],
+                    "peak": bool(r[4]),
+                    "date": r[5][:10] if r[5] else None,
+                }
+                for r in cursor.fetchall()
+            ]
 
 # Global DB instance
 DB = DatabaseManager()

@@ -245,27 +245,7 @@ def schedule_checkin(minutes_from_now: int, message: str) -> Dict:
 def get_recent_history(limit: int = 50) -> List[Dict]:
     """Retrieves recent task history for pattern analysis."""
     from adhd_os.infrastructure.database import DB
-    with DB._get_conn() as conn:
-        cursor = conn.execute(
-            """
-            SELECT task_type, estimated_minutes, actual_minutes, energy_level, in_peak_window, timestamp 
-            FROM task_history 
-            ORDER BY timestamp DESC LIMIT ?
-            """,
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        return [
-            {
-                "type": r[0],
-                "est": r[1],
-                "act": r[2],
-                "energy": r[3],
-                "peak": bool(r[4]),
-                "date": r[5][:10]
-            }
-            for r in rows
-        ]
+    return DB.get_recent_history(limit)
 
 @FunctionTool
 def safe_list_dir(path: str = ".") -> List[str]:
