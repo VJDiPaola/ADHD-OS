@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 function App() {
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -17,11 +18,17 @@ function App() {
           fetch(`${API_BASE}/sessions`)
         ]);
 
+        if (!statsRes.ok || !historyRes.ok || !sessionsRes.ok) {
+          throw new Error('One or more API requests failed');
+        }
+
         setStats(await statsRes.json());
         setHistory(await historyRes.json());
         setSessions(await sessionsRes.json());
-      } catch (error) {
-        console.error("Failed to fetch dashboard data:", error);
+        setError(null);
+      } catch (err) {
+        console.error("Failed to fetch dashboard data:", err);
+        setError('Unable to connect to the ADHD-OS backend. Make sure the API server is running on port 8000.');
       } finally {
         setLoading(false);
       }
@@ -35,6 +42,15 @@ function App() {
 
   if (loading) {
     return <div className="glass-card" style={{ textAlign: 'center' }}>Loading Neural Interface...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="glass-card" style={{ textAlign: 'center', color: '#f87171' }}>
+        <h3>Connection Error</h3>
+        <p>{error}</p>
+      </div>
+    );
   }
 
   return (

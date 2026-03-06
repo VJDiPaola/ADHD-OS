@@ -1,27 +1,41 @@
+import asyncio
 import json
+import os
 import sqlite3
-from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from typing import List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 app = FastAPI(title="ADHD-OS Dashboard API")
 
-# Enable CORS for frontend
+# CORS: read allowed origins from env, default to local dev frontend
+_cors_origins_raw = os.environ.get("ADHD_OS_CORS_ORIGINS", "http://localhost:5173")
+CORS_ORIGINS = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict this
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 DB_PATH = "adhd_os.db"
+_db_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dash-db")
 
+
+@contextmanager
 def get_db_connection():
+    """Context manager that guarantees the connection is closed."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 class StatsResponse(BaseModel):
     current_energy: int
@@ -36,74 +50,106 @@ class TaskHistoryItem(BaseModel):
 
 @app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Get current energy and multiplier
-    cursor.execute("SELECT key, value FROM user_state WHERE key IN ('energy_level', 'base_multiplier')")
-    rows = cursor.fetchall()
-    state = {}
-    for row in rows:
-        try:
-            state[row['key']] = json.loads(row['value'])
-        except (json.JSONDecodeError, TypeError):
-            pass
-    
-    # Get tasks completed today (use localtime to match Python's datetime.now() timestamps)
-    cursor.execute("SELECT COUNT(*) as count FROM task_history WHERE date(timestamp) = date('now', 'localtime')")
-    task_count = cursor.fetchone()['count']
-    
-    conn.close()
-    
+    def _query():
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT key, value FROM user_state WHERE key IN ('energy_level', 'base_multiplier')"
+            )
+            rows = cursor.fetchall()
+            state = {}
+            for row in rows:
+                try:
+                    state[row["key"]] = json.loads(row["value"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            cursor.execute(
+                "SELECT COUNT(*) as count FROM task_history "
+                "WHERE date(timestamp) = date('now', 'localtime')"
+            )
+            task_count = cursor.fetchone()["count"]
+        return state, task_count
+
+    loop = asyncio.get_event_loop()
+    state, task_count = await loop.run_in_executor(_db_executor, _query)
     return StatsResponse(
-        current_energy=int(state.get('energy_level', 5)),
-        current_multiplier=float(state.get('base_multiplier', 1.5)),
-        tasks_completed_today=task_count
+        current_energy=int(state.get("energy_level", 5)),
+        current_multiplier=float(state.get("base_multiplier", 1.5)),
+        tasks_completed_today=task_count,
     )
+
 
 @app.get("/api/history", response_model=List[TaskHistoryItem])
 async def get_history():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT id, task_type, timestamp, actual_minutes 
-        FROM task_history 
-        ORDER BY timestamp DESC 
-        LIMIT 50
-    """)
-    rows = cursor.fetchall()
-    
-    history = []
-    for row in rows:
-        history.append(TaskHistoryItem(
-            id=row['id'],
-            task_type=row['task_type'],
-            completed_at=row['timestamp'],
-            duration_minutes=float(row['actual_minutes'] or 0)
-        ))
-        
-    conn.close()
-    return history
+    def _query():
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, task_type, timestamp, actual_minutes
+                FROM task_history
+                ORDER BY timestamp DESC
+                LIMIT 50
+                """
+            )
+            return cursor.fetchall()
+
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(_db_executor, _query)
+    return [
+        TaskHistoryItem(
+            id=row["id"],
+            task_type=row["task_type"],
+            completed_at=row["timestamp"],
+            duration_minutes=float(row["actual_minutes"] or 0),
+        )
+        for row in rows
+    ]
+
 
 @app.get("/api/sessions")
 async def get_sessions():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT id, created_at, last_updated_at FROM sessions ORDER BY last_updated_at DESC LIMIT 10")
-    rows = cursor.fetchall()
-    
-    sessions = []
-    for row in rows:
-        sessions.append({
-            "id": row['id'],
-            "created_at": row['created_at'],
-            "last_active": row['last_updated_at']
-        })
-        
-    conn.close()
-    return sessions
+    def _query():
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, created_at, last_updated_at "
+                "FROM sessions ORDER BY last_updated_at DESC LIMIT 10"
+            )
+            return cursor.fetchall()
+
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(_db_executor, _query)
+    return [
+        {
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "last_active": row["last_updated_at"],
+        }
+        for row in rows
+    ]
+
+@app.get("/health")
+async def health_check():
+    """Health/readiness probe for container orchestrators."""
+    def _ping():
+        with get_db_connection() as conn:
+            conn.execute("SELECT 1")
+
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(_db_executor, _ping)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+
+
+
+@app.on_event("shutdown")
+def _shutdown_executor():
+    _db_executor.shutdown(wait=False)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
+# Hard ceiling to prevent runaway multiplier accumulation.
+MAX_MULTIPLIER = 4.0
+
 @dataclass
 class UserState:
     """
@@ -51,7 +54,7 @@ class UserState:
         elif hour >= 20:  # Evening
             mult += 0.25
             
-        return round(max(1.0, mult), 2)
+        return round(max(1.0, min(MAX_MULTIPLIER, mult)), 2)
     
     @property
     def is_in_peak_window(self) -> bool:

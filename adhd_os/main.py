@@ -3,14 +3,14 @@ import asyncio
 from datetime import datetime
 
 from google.adk.runners import Runner
+from google.genai import types
 
-from adhd_os.config import MODEL_MODE, get_model
+from adhd_os.config import MODEL_MODE
 from adhd_os.state import USER_STATE
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.persistence import SqliteSessionService
 from adhd_os.infrastructure.logging import logger
 from adhd_os.agents.orchestrator import orchestrator
-from adhd_os.models.message import Message
 from adhd_os.tools.common import capture_event_loop
 
 async def run_adhd_os():
@@ -27,9 +27,15 @@ async def run_adhd_os():
     
     # Context Recovery
     session = None
-    recent = await session_service.list_sessions("adhd_os", USER_STATE.user_id)
-    if recent:
-        last_session = await session_service.get_session("adhd_os", USER_STATE.user_id, recent[0]["id"])
+    recent = await session_service.list_sessions(
+        app_name="adhd_os", user_id=USER_STATE.user_id
+    )
+    if recent.sessions:
+        last_session = await session_service.get_session(
+            app_name="adhd_os",
+            user_id=USER_STATE.user_id,
+            session_id=recent.sessions[0].id,
+        )
         if last_session:
             last_active = datetime.fromtimestamp(last_session.last_update_time)
             if (datetime.now() - last_active).total_seconds() < 43200: # 12 hours
@@ -45,7 +51,7 @@ async def run_adhd_os():
     if not session:
         session = await session_service.create_session(
             app_name="adhd_os",
-            user_id=USER_STATE.user_id
+            user_id=USER_STATE.user_id,
         )
     
     # Initialize runner
@@ -113,13 +119,18 @@ async def run_adhd_os():
             
             if user_input.lower() == 'shutdown':
                 # Route through orchestrator for pattern analysis + summarization
-                async for response in runner.run_async(
+                async for event in runner.run_async(
                     user_id=USER_STATE.user_id,
                     session_id=session.id,
-                    new_message=Message(content=user_input)
+                    new_message=types.Content(
+                        role="user",
+                        parts=[types.Part(text=user_input)],
+                    ),
                 ):
-                    if response and response.content:
-                        print(f"\nADHD-OS: {response.content}")
+                    if event and event.content and event.content.parts:
+                        text = event.content.parts[0].text
+                        if text:
+                            print(f"\nADHD-OS: {text}")
 
                 await EVENT_BUS.publish(EventType.SESSION_SUMMARIZED, {
                     "timestamp": datetime.now().isoformat(),
@@ -141,31 +152,41 @@ async def run_adhd_os():
                 continue
 
             # Process through orchestrator
-            async for response in runner.run_async(
+            async for event in runner.run_async(
                 user_id=USER_STATE.user_id,
                 session_id=session.id,
-                new_message=Message(content=user_input)
+                new_message=types.Content(
+                    role="user",
+                    parts=[types.Part(text=user_input)],
+                ),
             ):
                 # Extract and print response
-                if response and response.content:
-                    print(f"\nADHD-OS: {response.content}")
-                    
-                    # Log interaction
-                    logger.info("Agent response", extra={
-                        "user_input": user_input,
-                        "agent_response": response.content
-                    })
-                else:
-                    print("\n[Processing... check for deterministic machine output above]")
-                
+                if event and event.content and event.content.parts:
+                    text = event.content.parts[0].text
+                    if text:
+                        print(f"\nADHD-OS: {text}")
+                        logger.info("Agent response", extra={
+                            "user_input": user_input,
+                            "agent_response": text,
+                        })
+
         except KeyboardInterrupt:
             print("\n\n Interrupted. Running quick shutdown...")
             await EVENT_BUS.publish(EventType.SESSION_SUMMARIZED, {"status": "interrupted"})
             USER_STATE.save_to_db()
             break
         except Exception as e:
-            logger.error(f"Runtime error: {e}", exc_info=True)
-            print(f"\n Error: {e}")
+            err_msg = str(e).lower()
+            if "rate" in err_msg or "429" in err_msg or "quota" in err_msg:
+                logger.warning("Rate limit hit: %s", e)
+                print("\n⏳ Rate limit reached. Waiting 30 seconds before retrying...")
+                await asyncio.sleep(30)
+            elif "auth" in err_msg or "401" in err_msg or "api_key" in err_msg or "permission" in err_msg:
+                logger.error("Authentication error: %s", e)
+                print("\n🔑 Authentication error. Please check your GOOGLE_API_KEY and ANTHROPIC_API_KEY.")
+            else:
+                logger.error("Runtime error: %s", e, exc_info=True)
+                print(f"\n❌ Error: {e}")
 
 if __name__ == "__main__":
     # Verify API keys
