@@ -56,9 +56,9 @@ All agents use `google.adk.agents.LlmAgent` with:
 
 ### Model Selection
 Models are configured in `config.py`. The `ADHD_OS_MODEL_MODE` env var controls quality vs speed tradeoffs:
-- `production` (default): Gemini Flash for everything
-- `quality`: Claude Opus for decomposition
-- `ab_test`: Random selection for comparison
+- `production` (default): `gemini/gemini-3-flash-preview` for the orchestrator, temporal agents, motivation, reflector, summarizer, and decomposer; empathy-heavy agents still use `anthropic/claude-sonnet-4-6`
+- `quality`: same as `production`, except decomposition uses `anthropic/claude-sonnet-4-6`
+- `ab_test`: same as `production`, except decomposition randomly switches between `gemini/gemini-3-flash-preview` and `anthropic/claude-sonnet-4-6`
 
 ### State Management
 - `state.py`: Global `USER_STATE` dataclass tracks energy, medication window, current task, dynamic multiplier

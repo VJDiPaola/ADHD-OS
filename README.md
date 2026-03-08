@@ -60,19 +60,19 @@ All data stays local in a SQLite database. No cloud sync, no accounts.
 
 | Agent | Cluster | What It Does | Model |
 |-------|---------|-------------|-------|
-| **Orchestrator** | Core | Routes input to the right specialist, manages state | Gemini 2.0 Flash |
-| **Task Initiator** | Activation | Overcomes "Wall of Awful" paralysis with a tiny next step | Claude Sonnet |
-| **Decomposer** | Activation | Breaks tasks into ≤10-min steps with checkpoints | Claude Opus (quality) / Gemini Flash (production) |
-| **Body Double** | Activation | Deterministic check-in machine for accountability | Gemini Flash |
-| **Time Calibrator** | Temporal | Corrects time blindness with dynamic multipliers | Gemini Flash |
-| **Calendar Strategist** | Temporal | Schedules around peak medication window | Gemini Flash |
-| **Focus Timer** | Temporal | Hyperfocus guardrails with hard-stop warnings | Gemini Flash |
-| **Catastrophe Check** | Emotional | Reality-tests anxiety spirals | Claude Sonnet |
-| **RSD Shield** | Emotional | Reframes perceived rejection | Claude Sonnet |
-| **Motivation Engineer** | Emotional | Makes boring tasks interesting (speedruns, streaks, rewards) | Gemini Flash |
-| **Pattern Analyst** | Reflection | Finds hidden correlations in task history | Gemini Flash |
-| **Reflector** | Reflection | Reviews plans for blind spots | Gemini Flash |
-| **Session Summarizer** | Utility | Compresses session into a narrative summary on shutdown | Gemini Flash |
+| **Orchestrator** | Core | Routes input to the right specialist, manages state | Gemini 3 Flash Preview |
+| **Task Initiator** | Activation | Overcomes "Wall of Awful" paralysis with a tiny next step | Claude Sonnet 4.6 |
+| **Decomposer** | Activation | Breaks tasks into ≤10-min steps with checkpoints | Claude Sonnet 4.6 (quality) / Gemini 3 Flash Preview (production) |
+| **Body Double** | Activation | Deterministic check-in machine for accountability | Gemini 3 Flash Preview |
+| **Time Calibrator** | Temporal | Corrects time blindness with dynamic multipliers | Gemini 3 Flash Preview |
+| **Calendar Strategist** | Temporal | Schedules around peak medication window | Gemini 3 Flash Preview |
+| **Focus Timer** | Temporal | Hyperfocus guardrails with hard-stop warnings | Gemini 3 Flash Preview |
+| **Catastrophe Check** | Emotional | Reality-tests anxiety spirals | Claude Sonnet 4.6 |
+| **RSD Shield** | Emotional | Reframes perceived rejection | Claude Sonnet 4.6 |
+| **Motivation Engineer** | Emotional | Makes boring tasks interesting (speedruns, streaks, rewards) | Gemini 3 Flash Preview |
+| **Pattern Analyst** | Reflection | Finds hidden correlations in task history | Gemini 3 Flash Preview |
+| **Reflector** | Reflection | Reviews plans for blind spots | Gemini 3 Flash Preview |
+| **Session Summarizer** | Utility | Compresses session into a narrative summary on shutdown | Gemini 3 Flash Preview |
 
 ---
 
@@ -197,9 +197,9 @@ Set these as environment variables (or in a `.env` file):
 
 **Model mode details:**
 
-- **`production`** — Uses Gemini Flash for everything including decomposition. Fastest and cheapest.
-- **`quality`** — Uses Claude Opus for task decomposition. Better plans, higher cost.
-- **`ab_test`** — Randomly picks between production and quality for decomposition (useful for comparing results).
+- **`production`** — Uses `gemini/gemini-3-flash-preview` for the orchestrator, temporal agents, motivation, reflector, summarizer, and the decomposer. Empathy-heavy agents still use `anthropic/claude-sonnet-4-6`.
+- **`quality`** — Same as `production`, except the decomposer switches to `anthropic/claude-sonnet-4-6`.
+- **`ab_test`** — Same as `production`, except the decomposer randomly picks between `gemini/gemini-3-flash-preview` and `anthropic/claude-sonnet-4-6`.
 
 ---
 
