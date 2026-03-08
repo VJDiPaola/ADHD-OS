@@ -229,22 +229,19 @@ def activate_body_double(task: str, duration_minutes: int, checkin_interval: int
     return {"status": "activating", "message": f"Starting body double for '{task}'..."}
 
 @FunctionTool
-def pause_body_double(reason: str = "") -> Dict:
+async def pause_body_double(reason: str = "") -> Dict:
     """Pauses the current body-double session."""
-    _fire_and_forget(BODY_DOUBLE.pause_session(reason))
-    return {"status": "pausing", "message": "Pausing body double..."}
+    return await BODY_DOUBLE.pause_session(reason)
 
 @FunctionTool
-def resume_body_double() -> Dict:
+async def resume_body_double() -> Dict:
     """Resumes the current paused body-double session."""
-    _fire_and_forget(BODY_DOUBLE.resume_session())
-    return {"status": "resuming", "message": "Resuming body double..."}
+    return await BODY_DOUBLE.resume_session()
 
 @FunctionTool
-def end_body_double(completed: bool = True) -> Dict:
+async def end_body_double(completed: bool = True) -> Dict:
     """Ends the current body-double session."""
-    _fire_and_forget(BODY_DOUBLE.end_session(completed))
-    return {"status": "ending", "message": "Ending body double..."}
+    return await BODY_DOUBLE.end_session(completed)
 
 @FunctionTool
 def get_body_double_status() -> Dict:

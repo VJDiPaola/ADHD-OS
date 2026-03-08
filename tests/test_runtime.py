@@ -181,17 +181,36 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.get_state("current_task"), "Quarterly report")
 
     async def test_update_provider_settings_persists_locally(self):
-        status = await self.runtime.update_provider_settings(
-            google_api_key="google-test-key",
-            anthropic_api_key="anthropic-test-key",
-            model_mode="quality",
-        )
+        from adhd_os.infrastructure import credentials as creds_mod
+
+        stored = {}
+
+        def fake_store(key, value, *, db=None):
+            stored[key] = value
+
+        def fake_load(key, *, db=None):
+            return stored.get(key)
+
+        def fake_delete(key, *, db=None):
+            stored.pop(key, None)
+
+        with patch.object(creds_mod, "store_credential", side_effect=fake_store), \
+             patch.object(creds_mod, "load_credential", side_effect=fake_load), \
+             patch.object(creds_mod, "delete_credential", side_effect=fake_delete), \
+             patch("adhd_os.runtime.store_credential", side_effect=fake_store), \
+             patch("adhd_os.runtime.load_credential", side_effect=fake_load), \
+             patch("adhd_os.runtime.delete_credential", side_effect=fake_delete):
+            status = await self.runtime.update_provider_settings(
+                google_api_key="google-test-key",
+                anthropic_api_key="anthropic-test-key",
+                model_mode="quality",
+            )
 
         self.assertTrue(status["google_api_key_present"])
         self.assertTrue(status["anthropic_api_key_present"])
         self.assertEqual(status["model_mode"], "quality")
-        self.assertEqual(self.db.get_app_setting("google_api_key"), "google-test-key")
-        self.assertEqual(self.db.get_app_setting("anthropic_api_key"), "anthropic-test-key")
+        self.assertEqual(stored.get("google_api_key"), "google-test-key")
+        self.assertEqual(stored.get("anthropic_api_key"), "anthropic-test-key")
         self.assertEqual(self.db.get_app_setting("model_mode"), "quality")
 
     async def test_create_task_item_sets_current_task_when_doing(self):

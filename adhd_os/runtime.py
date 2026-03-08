@@ -15,6 +15,11 @@ from adhd_os.infrastructure.database import DB
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.machines import BODY_DOUBLE, FOCUS_TIMER
 from adhd_os.infrastructure.persistence import SqliteSessionService
+from adhd_os.infrastructure.credentials import (
+    delete_credential,
+    load_credential,
+    store_credential,
+)
 from adhd_os.infrastructure.settings import (
     ANTHROPIC_API_KEY_SETTING,
     GOOGLE_API_KEY_SETTING,
@@ -322,19 +327,19 @@ class ADHDOSRuntime:
         await self.startup()
 
         if clear_google_api_key:
-            self.db.delete_app_setting(GOOGLE_API_KEY_SETTING)
+            delete_credential(GOOGLE_API_KEY_SETTING, db=self.db)
             os.environ.pop("GOOGLE_API_KEY", None)
         elif google_api_key and google_api_key.strip():
             clean_google_key = google_api_key.strip()
-            self.db.save_app_setting(GOOGLE_API_KEY_SETTING, clean_google_key)
+            store_credential(GOOGLE_API_KEY_SETTING, clean_google_key, db=self.db)
             os.environ["GOOGLE_API_KEY"] = clean_google_key
 
         if clear_anthropic_api_key:
-            self.db.delete_app_setting(ANTHROPIC_API_KEY_SETTING)
+            delete_credential(ANTHROPIC_API_KEY_SETTING, db=self.db)
             os.environ.pop("ANTHROPIC_API_KEY", None)
         elif anthropic_api_key and anthropic_api_key.strip():
             clean_anthropic_key = anthropic_api_key.strip()
-            self.db.save_app_setting(ANTHROPIC_API_KEY_SETTING, clean_anthropic_key)
+            store_credential(ANTHROPIC_API_KEY_SETTING, clean_anthropic_key, db=self.db)
             os.environ["ANTHROPIC_API_KEY"] = clean_anthropic_key
 
         if model_mode is not None:
@@ -461,7 +466,9 @@ class ADHDOSRuntime:
 
     async def resume_body_double(self) -> Dict[str, Any]:
         await self.startup()
-        await self.body_double.resume_session()
+        result = await self.body_double.resume_session()
+        if result.get("status") == "error":
+            raise ValueError(result.get("message", "Failed to resume body double"))
         return self.get_body_double_status()
 
     async def end_body_double(self, completed: bool = True) -> Dict[str, Any]:
@@ -513,12 +520,9 @@ class ADHDOSRuntime:
         return self.focus_timer.get_status()
 
     def get_provider_status(self) -> Dict[str, Any]:
-        saved_settings = self.db.get_app_settings(
-            [GOOGLE_API_KEY_SETTING, ANTHROPIC_API_KEY_SETTING, MODEL_MODE_SETTING]
-        )
-        google_present = bool(os.environ.get("GOOGLE_API_KEY") or saved_settings.get(GOOGLE_API_KEY_SETTING))
-        anthropic_present = bool(os.environ.get("ANTHROPIC_API_KEY") or saved_settings.get(ANTHROPIC_API_KEY_SETTING))
-        saved_model_mode = saved_settings.get(MODEL_MODE_SETTING)
+        google_present = bool(os.environ.get("GOOGLE_API_KEY") or load_credential(GOOGLE_API_KEY_SETTING, db=self.db))
+        anthropic_present = bool(os.environ.get("ANTHROPIC_API_KEY") or load_credential(ANTHROPIC_API_KEY_SETTING, db=self.db))
+        saved_model_mode = self.db.get_app_setting(MODEL_MODE_SETTING)
 
         try:
             configured_model_mode = ModelMode(saved_model_mode).value if saved_model_mode else MODEL_MODE.value
@@ -670,14 +674,14 @@ class ADHDOSRuntime:
         }
 
     def _load_saved_provider_environment(self):
-        google_api_key = self.db.get_app_setting(GOOGLE_API_KEY_SETTING)
-        anthropic_api_key = self.db.get_app_setting(ANTHROPIC_API_KEY_SETTING)
+        google_api_key = load_credential(GOOGLE_API_KEY_SETTING, db=self.db)
+        anthropic_api_key = load_credential(ANTHROPIC_API_KEY_SETTING, db=self.db)
 
         if google_api_key and not os.environ.get("GOOGLE_API_KEY"):
-            os.environ["GOOGLE_API_KEY"] = str(google_api_key)
+            os.environ["GOOGLE_API_KEY"] = google_api_key
 
         if anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-            os.environ["ANTHROPIC_API_KEY"] = str(anthropic_api_key)
+            os.environ["ANTHROPIC_API_KEY"] = anthropic_api_key
 
     def _public_event_name(self, event_type: str) -> str:
         mapping = {
