@@ -5,6 +5,7 @@ from adhd_os.config import MODELS, get_model, MODEL_MODE
 from adhd_os.tools.common import (
     get_user_state, get_current_time, log_activation_attempt,
     check_task_cache, apply_time_calibration, activate_body_double,
+    pause_body_double, resume_body_double, end_body_double,
     get_body_double_status, store_task_decomposition
 )
 
@@ -137,10 +138,19 @@ body_double_agent = LlmAgent(
     - Check-in interval: 10 minutes
     
     If user asks for status, use get_body_double_status.
-    If user says "done" or "stop", acknowledge completion.
-    
+    If user says "pause", use pause_body_double.
+    If user says "resume", use resume_body_double.
+    If user says "done" or "stop", use end_body_double.
+
     Keep responses brief. The machine does the work.
     """,
     
-    tools=[activate_body_double, get_body_double_status, get_current_time],
+    tools=[
+        activate_body_double,
+        pause_body_double,
+        resume_body_double,
+        end_body_double,
+        get_body_double_status,
+        get_current_time,
+    ],
 )

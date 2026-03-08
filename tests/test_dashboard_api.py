@@ -54,20 +54,24 @@ class DashboardApiTests(unittest.TestCase):
     def test_machine_endpoints_delegate_to_runtime(self):
         with patch.object(backend.RUNTIME, "startup", AsyncMock()), \
              patch.object(backend.RUNTIME, "start_body_double", AsyncMock(return_value={"state": "active"})) as mock_start, \
+             patch.object(backend.RUNTIME, "resume_body_double", AsyncMock(return_value={"state": "active"})) as mock_resume, \
              patch.object(backend.RUNTIME, "set_focus_guardrail", AsyncMock(return_value={"state": "active"})) as mock_guardrail:
             with TestClient(backend.app) as client:
                 start_response = client.post(
                     "/api/body-double/start",
                     json={"task": "Deep work", "duration_minutes": 30, "checkin_interval": 10},
                 )
+                resume_response = client.post("/api/body-double/resume")
                 guardrail_response = client.post(
                     "/api/focus-guardrail",
                     json={"minutes": 45, "reason": "School pickup"},
                 )
 
         self.assertEqual(start_response.status_code, 200)
+        self.assertEqual(resume_response.status_code, 200)
         self.assertEqual(guardrail_response.status_code, 200)
         mock_start.assert_awaited_once_with(task="Deep work", duration_minutes=30, checkin_interval=10)
+        mock_resume.assert_awaited_once_with()
         mock_guardrail.assert_awaited_once_with(minutes=45, reason="School pickup")
 
     def test_shutdown_endpoint_returns_runtime_messages(self):

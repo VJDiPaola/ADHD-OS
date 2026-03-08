@@ -318,6 +318,11 @@ class ADHDOSRuntime:
         await self.body_double.pause_session(reason)
         return self.get_body_double_status()
 
+    async def resume_body_double(self) -> Dict[str, Any]:
+        await self.startup()
+        await self.body_double.resume_session()
+        return self.get_body_double_status()
+
     async def end_body_double(self, completed: bool = True) -> Dict[str, Any]:
         await self.startup()
         await self.body_double.end_session(completed)

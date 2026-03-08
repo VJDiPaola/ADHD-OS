@@ -10,6 +10,7 @@ vi.mock('./api', () => ({
   getHistory: vi.fn(),
   patchUserState: vi.fn(),
   pauseBodyDouble: vi.fn(),
+  resumeBodyDouble: vi.fn(),
   sendChatTurn: vi.fn(),
   setFocusGuardrail: vi.fn(),
   shutdownSession: vi.fn(),
@@ -141,6 +142,7 @@ beforeEach(() => {
     hard_stop_time: '2026-03-08T15:00:00',
   })
   api.pauseBodyDouble.mockResolvedValue({ state: 'paused', task: 'Deep work' })
+  api.resumeBodyDouble.mockResolvedValue({ state: 'active', task: 'Deep work', remaining_minutes: 25 })
   api.endBodyDouble.mockResolvedValue({ state: 'idle' })
   api.clearFocusGuardrail.mockResolvedValue({ state: 'idle' })
   api.shutdownSession.mockResolvedValue({
@@ -245,6 +247,27 @@ describe('App', () => {
     await waitFor(() => {
       expect(api.patchUserState).toHaveBeenCalled()
       expect(api.sendChatTurn).toHaveBeenCalled()
+    })
+  })
+
+  it('resumes a paused body-double session', async () => {
+    const user = userEvent.setup()
+    api.createLiveStream.mockReturnValue(new MockEventSource())
+    api.getBootstrap.mockResolvedValue(buildBootstrap({
+      body_double: {
+        state: 'paused',
+        task: 'Deep work',
+        remaining_minutes: 25,
+      },
+    }))
+
+    render(<App />)
+    await screen.findByText('Executive Function Workspace')
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }))
+
+    await waitFor(() => {
+      expect(api.resumeBodyDouble).toHaveBeenCalled()
     })
   })
 

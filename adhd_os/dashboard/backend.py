@@ -198,6 +198,11 @@ async def post_body_double_pause(request: BodyDoublePauseRequest):
     return await RUNTIME.pause_body_double(reason=request.reason)
 
 
+@app.post("/api/body-double/resume")
+async def post_body_double_resume():
+    return await RUNTIME.resume_body_double()
+
+
 @app.post("/api/body-double/end")
 async def post_body_double_end(request: BodyDoubleEndRequest):
     return await RUNTIME.end_body_double(completed=request.completed)

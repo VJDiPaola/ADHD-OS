@@ -15,6 +15,7 @@ import {
   getHistory,
   patchUserState,
   pauseBodyDouble,
+  resumeBodyDouble,
   sendChatTurn,
   setFocusGuardrail,
   shutdownSession,
@@ -246,6 +247,26 @@ function App() {
         hard_stop_time: payload.data.hard_stop_time ?? current.hard_stop_time,
         reason: payload.data.reason ?? current.reason,
       }))
+    }
+
+    if (payload.event_type === 'system_notice' && payload.data) {
+      if (payload.data.machine === 'body_double' && payload.data.task && payload.data.state) {
+        setBodyDouble((current) => ({
+          ...current,
+          state: payload.data.state,
+          task: payload.data.state === 'idle' ? null : payload.data.task ?? current.task,
+          remaining_minutes: payload.data.state === 'idle' ? 0 : current.remaining_minutes,
+        }))
+      }
+
+      if (payload.data.machine === 'focus_guardrail') {
+        setFocusGuardrailState((current) => ({
+          ...current,
+          state: payload.data.hard_stop_time ? 'active' : payload.data.state ?? current.state,
+          hard_stop_time: payload.data.state === 'idle' ? null : payload.data.hard_stop_time ?? current.hard_stop_time,
+          reason: payload.data.state === 'idle' ? null : payload.data.reason ?? current.reason,
+        }))
+      }
     }
   })
 
@@ -511,6 +532,20 @@ function App() {
       setError(null)
     } catch (pauseError) {
       setError(pauseError.message || 'Unable to pause the body-double session.')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function handleBodyDoubleResume() {
+    setWorking(true)
+    try {
+      const status = await resumeBodyDouble()
+      setBodyDouble(status)
+      addToast('body double', 'Body-double session resumed.')
+      setError(null)
+    } catch (resumeError) {
+      setError(resumeError.message || 'Unable to resume the body-double session.')
     } finally {
       setWorking(false)
     }
@@ -972,9 +1007,15 @@ function App() {
                 <span>{bodyDouble?.remaining_minutes ?? 0} min left</span>
               </div>
               <div className="inline-actions">
-                <button type="button" className="secondary-button" onClick={handleBodyDoublePause} disabled={working || bodyDouble?.state === 'idle'}>
-                  Pause
-                </button>
+                {bodyDouble?.state === 'paused' ? (
+                  <button type="button" className="secondary-button" onClick={handleBodyDoubleResume} disabled={working}>
+                    Resume
+                  </button>
+                ) : (
+                  <button type="button" className="secondary-button" onClick={handleBodyDoublePause} disabled={working || bodyDouble?.state === 'idle'}>
+                    Pause
+                  </button>
+                )}
                 <button type="button" className="secondary-button" onClick={handleBodyDoubleEnd} disabled={working || bodyDouble?.state === 'idle'}>
                   Complete
                 </button>

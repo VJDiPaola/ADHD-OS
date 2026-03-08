@@ -70,6 +70,12 @@ export function pauseBodyDouble(payload) {
   })
 }
 
+export function resumeBodyDouble() {
+  return requestJson('/body-double/resume', {
+    method: 'POST',
+  })
+}
+
 export function endBodyDouble(payload = { completed: true }) {
   return requestJson('/body-double/end', {
     method: 'POST',

@@ -203,6 +203,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(guardrail_status["state"], "active")
         self.assertEqual(guardrail_status["reason"], "School pickup")
 
+    async def test_resume_body_double_reactivates_paused_session(self):
+        await self.runtime.start_body_double(
+            task="Draft launch email",
+            duration_minutes=15,
+            checkin_interval=5,
+        )
+        paused_status = await self.runtime.pause_body_double("Coffee refill")
+        resumed_status = await self.runtime.resume_body_double()
+
+        self.assertEqual(paused_status["state"], "paused")
+        self.assertEqual(resumed_status["state"], "active")
+        self.assertEqual(resumed_status["task"], "Draft launch email")
+
     async def test_session_lock_serializes_concurrent_turns(self):
         from adhd_os.runtime import ADHDOSRuntime
 

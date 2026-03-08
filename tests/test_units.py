@@ -292,6 +292,17 @@ class TestBodyDoubleMachine(unittest.TestCase):
         snapshot = self.db.get_machine_state("body_double")
         self.assertEqual(snapshot["state"], "paused")
 
+    def test_resume_session(self):
+        async def run():
+            await self.machine.start_session("task", 10)
+            await self.machine.pause_session("break")
+            return await self.machine.resume_session()
+
+        result = asyncio.run(run())
+        self.assertEqual(result["status"], "resumed")
+        snapshot = self.db.get_machine_state("body_double")
+        self.assertEqual(snapshot["state"], "active")
+
     def test_end_idle_session(self):
         result = asyncio.run(self.machine.end_session())
         self.assertEqual(result["status"], "error")
