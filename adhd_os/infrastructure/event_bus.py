@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import logging
 from collections import deque
@@ -14,6 +15,7 @@ class EventType(Enum):
     TASK_COMPLETED = "task_completed"
     FOCUS_BLOCK_STARTED = "focus_block_started"
     FOCUS_BLOCK_ENDED = "focus_block_ended"
+    FOCUS_WARNING = "focus_warning"
     CHECKIN_DUE = "checkin_due"
     ENERGY_UPDATED = "energy_updated"
     PATTERN_DETECTED = "pattern_detected"
@@ -33,6 +35,14 @@ class EventBus:
         if event_type not in self._subscribers:
             self._subscribers[event_type] = []
         self._subscribers[event_type].append(handler)
+
+    def unsubscribe(self, event_type: EventType, handler: Callable):
+        """Removes a handler from an event type if present."""
+        handlers = self._subscribers.get(event_type, [])
+        if handler in handlers:
+            handlers.remove(handler)
+        if not handlers and event_type in self._subscribers:
+            self._subscribers.pop(event_type, None)
     
     async def publish(self, event_type: EventType, data: Dict[str, Any]):
         """Publish an event to all subscribers and persist to DB."""
@@ -53,9 +63,9 @@ class EventBus:
 
         # Dispatch to subscribers
         if event_type in self._subscribers:
-            for handler in self._subscribers[event_type]:
+            for handler in list(self._subscribers[event_type]):
                 try:
-                    if asyncio.iscoroutinefunction(handler):
+                    if inspect.iscoroutinefunction(handler):
                         await handler(data)
                     else:
                         handler(data)

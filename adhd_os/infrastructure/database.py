@@ -1,20 +1,29 @@
-import sqlite3
 import json
+import sqlite3
 from datetime import datetime
-from typing import Dict, Any, List, Optional
-import os
+from typing import Any, Dict, List, Optional
+
+class ManagedConnection(sqlite3.Connection):
+    """sqlite3 connection that closes itself when used as a context manager."""
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
 
 class DatabaseManager:
     """
     Manages SQLite connection and schema for ADHD-OS.
-    Handles user state, sessions, and task history.
+    Handles user state, sessions, task history, and normalized UI transcripts.
     """
     def __init__(self, db_path: str = "adhd_os.db"):
         self.db_path = db_path
         self._init_db()
     
     def _get_conn(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, factory=ManagedConnection)
         conn.execute("PRAGMA journal_mode=WAL;")
         return conn
 
@@ -94,6 +103,18 @@ class DatabaseManager:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id)
+                )
+            """)
+
             # Indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_sessions_last_updated
@@ -106,6 +127,10 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_bus_events_type
                 ON bus_events (event_type, timestamp)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_conversation_messages_session
+                ON conversation_messages (session_id, created_at, id)
             """)
 
             conn.commit()
@@ -254,6 +279,200 @@ class DatabaseManager:
                     "date": r[5][:10] if r[5] else None,
                 }
                 for r in cursor.fetchall()
+            ]
+
+    # --- Dashboard / UI transcript methods ---
+
+    def get_state_values(self, keys: List[str]) -> Dict[str, Any]:
+        """Retrieves multiple user state values at once."""
+        if not keys:
+            return {}
+
+        placeholders = ", ".join("?" for _ in keys)
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                f"SELECT key, value FROM user_state WHERE key IN ({placeholders})",
+                tuple(keys),
+            )
+            values: Dict[str, Any] = {}
+            for key, raw_value in cursor.fetchall():
+                try:
+                    values[key] = json.loads(raw_value)
+                except (TypeError, json.JSONDecodeError):
+                    values[key] = raw_value
+            return values
+
+    def get_tasks_completed_today(self) -> int:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM task_history WHERE date(timestamp) = date('now', 'localtime')"
+            )
+            row = cursor.fetchone()
+            return int(row[0] if row else 0)
+
+    def get_task_history_items(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, task_type, timestamp, actual_minutes
+                FROM task_history
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": row[0],
+                    "task_type": row[1],
+                    "completed_at": row[2],
+                    "duration_minutes": float(row[3] or 0),
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def get_recent_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, created_at, last_updated_at
+                FROM sessions
+                ORDER BY last_updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": row[0],
+                    "created_at": row[1],
+                    "last_active": row[2],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def store_conversation_message(
+        self,
+        session_id: str,
+        role: str,
+        kind: str,
+        text: str,
+        created_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        created_at = created_at or datetime.now().isoformat()
+        clean_text = (text or "").strip()
+        if not clean_text:
+            raise ValueError("Conversation message text cannot be empty.")
+
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO conversation_messages (session_id, role, kind, text, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (session_id, role, kind, clean_text, created_at),
+            )
+            conn.execute(
+                "UPDATE sessions SET last_updated_at = ? WHERE id = ?",
+                (created_at, session_id),
+            )
+            return {
+                "id": cursor.lastrowid,
+                "session_id": session_id,
+                "role": role,
+                "kind": kind,
+                "text": clean_text,
+                "created_at": created_at,
+            }
+
+    def store_conversation_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        stored: List[Dict[str, Any]] = []
+        for message in messages:
+            stored.append(
+                self.store_conversation_message(
+                    session_id=message["session_id"],
+                    role=message["role"],
+                    kind=message["kind"],
+                    text=message["text"],
+                    created_at=message.get("created_at"),
+                )
+            )
+        return stored
+
+    def get_conversation_messages(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, session_id, role, kind, text, created_at
+                FROM conversation_messages
+                WHERE session_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                (session_id,),
+            )
+            return [
+                {
+                    "id": row[0],
+                    "session_id": row[1],
+                    "role": row[2],
+                    "kind": row[3],
+                    "text": row[4],
+                    "created_at": row[5],
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def conversation_message_count(self, session_id: str) -> int:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM conversation_messages WHERE session_id = ?",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            return int(row[0] if row else 0)
+
+    def get_session_event_payloads(self, session_id: str) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, type, data_json, timestamp
+                FROM events
+                WHERE session_id = ?
+                ORDER BY id ASC
+                """,
+                (session_id,),
+            )
+            rows = []
+            for row in cursor.fetchall():
+                rows.append(
+                    {
+                        "id": row[0],
+                        "type": row[1],
+                        "data_json": row[2],
+                        "timestamp": row[3],
+                    }
+                )
+            return rows
+
+    def get_recent_bus_events(self, limit: int = 25) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, event_type, data_json, timestamp
+                FROM bus_events
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                {
+                    "id": row[0],
+                    "event_type": row[1],
+                    "data_json": row[2],
+                    "timestamp": row[3],
+                }
+                for row in cursor.fetchall()
             ]
 
 # Global DB instance

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any, List
 
@@ -87,7 +88,7 @@ def update_user_state(
     energy_level: Optional[int] = None,
     medication_taken: bool = False,
     current_task: Optional[str] = None,
-    mood_indicator: Optional[str] = None
+    mood_indicator: Optional[str] = None,
 ) -> Dict:
     """Updates user state. Energy 1-10."""
     changes = []
@@ -108,6 +109,9 @@ def update_user_state(
     if mood_indicator:
         USER_STATE.mood_indicators.append(mood_indicator)
         changes.append(f"mood={mood_indicator}")
+
+    if changes:
+        USER_STATE.save_to_db()
     
     return {
         "status": "updated",

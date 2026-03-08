@@ -7,7 +7,7 @@ from datetime import datetime
 from google.adk.sessions import BaseSessionService, Session
 from google.adk.sessions.base_session_service import ListSessionsResponse
 from google.adk.events import Event
-from adhd_os.infrastructure.database import DB
+from adhd_os.infrastructure import database as database_module
 
 # Shared executor for offloading blocking sqlite calls.
 _db_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="db")
@@ -18,6 +18,9 @@ class SqliteSessionService(BaseSessionService):
     SQLite-backed session service.
     Robust, queryable, and safe.
     """
+
+    def __init__(self, db=None):
+        self.db = db or database_module.DB
 
     async def create_session(
         self,
@@ -43,7 +46,7 @@ class SqliteSessionService(BaseSessionService):
         )
 
         def _write():
-            with DB.get_connection() as conn:
+            with self.db.get_connection() as conn:
                 conn.execute(
                     """
                     INSERT INTO sessions (id, user_id, app_name, created_at, last_updated_at, state_json)
@@ -66,7 +69,7 @@ class SqliteSessionService(BaseSessionService):
     ) -> Optional[Session]:
         """Retrieves a session from DB."""
         def _read():
-            with DB.get_connection() as conn:
+            with self.db.get_connection() as conn:
                 cursor = conn.execute(
                     "SELECT user_id, app_name, created_at, last_updated_at, state_json "
                     "FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?",
@@ -111,7 +114,7 @@ class SqliteSessionService(BaseSessionService):
     ) -> ListSessionsResponse:
         """Lists sessions for user."""
         def _read():
-            with DB.get_connection() as conn:
+            with self.db.get_connection() as conn:
                 if user_id:
                     cursor = conn.execute(
                         "SELECT id, user_id, app_name, created_at, last_updated_at, state_json "
@@ -153,7 +156,7 @@ class SqliteSessionService(BaseSessionService):
     ) -> None:
         """Deletes a session."""
         def _delete():
-            with DB.get_connection() as conn:
+            with self.db.get_connection() as conn:
                 conn.execute(
                     "DELETE FROM events WHERE session_id = ? "
                     "AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND app_name = ? AND user_id = ?)",
@@ -174,7 +177,7 @@ class SqliteSessionService(BaseSessionService):
         sid = session.id
 
         def _write():
-            with DB.get_connection() as conn:
+            with self.db.get_connection() as conn:
                 conn.execute(
                     "INSERT INTO events (session_id, type, data_json, timestamp) VALUES (?, ?, ?, ?)",
                     (sid, "adk_event", event_json, ts_iso),

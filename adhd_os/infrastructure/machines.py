@@ -179,6 +179,9 @@ class FocusTimerMachine:
     
     async def set_hard_stop(self, minutes: int, reason: str) -> Dict:
         """Sets a hard stop guardrail for hyperfocus protection."""
+        if self._warning_task:
+            self._warning_task.cancel()
+
         self.hard_stop_time = datetime.now() + timedelta(minutes=minutes)
         self.hard_stop_reason = reason
         
@@ -212,17 +215,41 @@ class FocusTimerMachine:
             wait_time = (warning_time - elapsed) * seconds_per_minute
             await asyncio.sleep(max(0.5, wait_time))
             print(f"\n{message}\n")
+            await self.event_bus.publish(EventType.FOCUS_WARNING, {
+                "message": message,
+                "minutes_until_stop": max(0, total_minutes - warning_time),
+                "hard_stop_time": self.hard_stop_time.isoformat() if self.hard_stop_time else None,
+                "reason": self.hard_stop_reason,
+            })
             elapsed = warning_time
+
+        self.hard_stop_time = None
+        self.hard_stop_reason = None
+        self._warning_task = None
     
     async def clear_guardrail(self) -> Dict:
         """Clears the hard stop guardrail."""
         if self._warning_task:
             self._warning_task.cancel()
+            self._warning_task = None
         
         self.hard_stop_time = None
         self.hard_stop_reason = None
         
         return {"status": "cleared", "message": "Guardrail cleared."}
+
+    def get_status(self) -> Dict:
+        """Returns the current guardrail status."""
+        if not self.hard_stop_time:
+            return {"state": "idle", "message": "No active hard stop"}
+
+        remaining = max(0, int((self.hard_stop_time - datetime.now()).total_seconds() // 60))
+        return {
+            "state": "active",
+            "hard_stop_time": self.hard_stop_time.isoformat(),
+            "reason": self.hard_stop_reason,
+            "remaining_minutes": remaining,
+        }
 
 # Initialize global instances here to be imported by tools
 # However, machines need EVENT_BUS which is in event_bus.py
