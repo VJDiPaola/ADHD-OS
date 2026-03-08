@@ -58,6 +58,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp.close()
+        self.original_env = {
+            "GOOGLE_API_KEY": os.environ.get("GOOGLE_API_KEY"),
+            "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+            "ADHD_OS_MODEL_MODE": os.environ.get("ADHD_OS_MODEL_MODE"),
+        }
 
         from adhd_os.infrastructure.database import DatabaseManager
         from adhd_os.infrastructure.event_bus import EventBus
@@ -92,6 +97,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.body_double._active_task.cancel()
         if self.focus_timer._warning_task:
             self.focus_timer._warning_task.cancel()
+        for key, value in self.original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self.db_patcher.stop()
         os.unlink(self.temp.name)
 
@@ -169,6 +179,20 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["energy_level"], 8)
         self.assertEqual(self.db.get_state("energy_level"), 8)
         self.assertEqual(self.db.get_state("current_task"), "Quarterly report")
+
+    async def test_update_provider_settings_persists_locally(self):
+        status = await self.runtime.update_provider_settings(
+            google_api_key="google-test-key",
+            anthropic_api_key="anthropic-test-key",
+            model_mode="quality",
+        )
+
+        self.assertTrue(status["google_api_key_present"])
+        self.assertTrue(status["anthropic_api_key_present"])
+        self.assertEqual(status["model_mode"], "quality")
+        self.assertEqual(self.db.get_app_setting("google_api_key"), "google-test-key")
+        self.assertEqual(self.db.get_app_setting("anthropic_api_key"), "anthropic-test-key")
+        self.assertEqual(self.db.get_app_setting("model_mode"), "quality")
 
     async def test_startup_restores_machine_state(self):
         now = datetime.now()

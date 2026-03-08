@@ -8,6 +8,7 @@ vi.mock('./api', () => ({
   endBodyDouble: vi.fn(),
   getBootstrap: vi.fn(),
   getHistory: vi.fn(),
+  patchProviderSettings: vi.fn(),
   patchUserState: vi.fn(),
   pauseBodyDouble: vi.fn(),
   resumeBodyDouble: vi.fn(),
@@ -79,8 +80,12 @@ function buildBootstrap(overrides = {}) {
       { id: 'sess-002-b', last_active: '2026-03-07T20:00:00' },
     ],
     provider_status: {
+      google_api_key_present: true,
+      anthropic_api_key_present: true,
       ready: true,
       model_mode: 'production',
+      effective_model_mode: 'production',
+      model_mode_restart_required: false,
     },
     recent_activity: [],
     ...overrides,
@@ -103,6 +108,14 @@ beforeEach(() => {
     dynamic_multiplier: 1.6,
     current_task: 'Inbox cleanup',
     peak_window: { active: true },
+  })
+  api.patchProviderSettings.mockResolvedValue({
+    google_api_key_present: true,
+    anthropic_api_key_present: true,
+    ready: true,
+    model_mode: 'quality',
+    effective_model_mode: 'production',
+    model_mode_restart_required: true,
   })
   api.sendChatTurn.mockResolvedValue({
     session_id: 'sess-001-a',
@@ -247,6 +260,29 @@ describe('App', () => {
     await waitFor(() => {
       expect(api.patchUserState).toHaveBeenCalled()
       expect(api.sendChatTurn).toHaveBeenCalled()
+    })
+  })
+
+  it('saves provider settings from the dashboard', async () => {
+    const user = userEvent.setup()
+    api.createLiveStream.mockReturnValue(new MockEventSource())
+
+    render(<App />)
+    await screen.findByText('Executive Function Workspace')
+
+    await user.type(screen.getByLabelText('Google API Key'), 'google-test-key')
+    await user.type(screen.getByLabelText('Anthropic API Key'), 'anthropic-test-key')
+    await user.selectOptions(screen.getByLabelText('Model Mode'), 'quality')
+    await user.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    await waitFor(() => {
+      expect(api.patchProviderSettings).toHaveBeenCalledWith({
+        google_api_key: 'google-test-key',
+        anthropic_api_key: 'anthropic-test-key',
+        model_mode: 'quality',
+        clear_google_api_key: false,
+        clear_anthropic_api_key: false,
+      })
     })
   })
 

@@ -44,6 +44,14 @@ class DatabaseManager:
                     updated_at TIMESTAMP
                 )
             """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TIMESTAMP
+                )
+            """)
             
             # Sessions Table
             cursor.execute("""
@@ -165,6 +173,49 @@ class DatabaseManager:
             if row:
                 return json.loads(row[0])
             return default
+
+    # --- App Settings Methods ---
+
+    def save_app_setting(self, key: str, value: Any):
+        """Saves a local application setting."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, json.dumps(value), datetime.now().isoformat()),
+            )
+
+    def get_app_setting(self, key: str, default: Any = None) -> Any:
+        """Retrieves a local application setting."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                return json.loads(row[0])
+            return default
+
+    def get_app_settings(self, keys: List[str]) -> Dict[str, Any]:
+        """Retrieves multiple app settings at once."""
+        if not keys:
+            return {}
+
+        placeholders = ", ".join("?" for _ in keys)
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                f"SELECT key, value FROM app_settings WHERE key IN ({placeholders})",
+                tuple(keys),
+            )
+            values: Dict[str, Any] = {}
+            for key, raw_value in cursor.fetchall():
+                try:
+                    values[key] = json.loads(raw_value)
+                except (TypeError, json.JSONDecodeError):
+                    values[key] = raw_value
+            return values
+
+    def delete_app_setting(self, key: str):
+        """Deletes a local application setting."""
+        with self._get_conn() as conn:
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (key,))
 
     # --- Task Cache Methods ---
 

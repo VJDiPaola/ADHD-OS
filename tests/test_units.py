@@ -101,6 +101,13 @@ class TestDatabaseManager(unittest.TestCase):
         self.db.clear_machine_state("body_double")
         self.assertIsNone(self.db.get_machine_state("body_double"))
 
+    def test_app_setting_round_trip(self):
+        self.db.save_app_setting("model_mode", "quality")
+        self.assertEqual(self.db.get_app_setting("model_mode"), "quality")
+
+        self.db.delete_app_setting("model_mode")
+        self.assertIsNone(self.db.get_app_setting("model_mode"))
+
 
 # ---------------------------------------------------------------------------
 # Event Bus

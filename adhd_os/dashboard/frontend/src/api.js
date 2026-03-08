@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 async function requestJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -45,6 +45,13 @@ export function sendChatTurn(payload) {
 
 export function patchUserState(payload) {
   return requestJson('/user-state', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function patchProviderSettings(payload) {
+  return requestJson('/settings/providers', {
     method: 'PATCH',
     body: JSON.stringify(payload),
   })

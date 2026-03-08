@@ -3,14 +3,19 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
+from adhd_os.infrastructure.settings import apply_saved_environment_settings
+
+apply_saved_environment_settings()
+
 from adhd_os.runtime import RUNTIME
 
 
@@ -65,6 +70,14 @@ class FocusGuardrailRequest(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
+class ProviderSettingsPatchRequest(BaseModel):
+    google_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    model_mode: Optional[str] = None
+    clear_google_api_key: bool = False
+    clear_anthropic_api_key: bool = False
+
+
 LIVE_EVENT_TYPES = [
     EventType.CHECKIN_DUE,
     EventType.FOCUS_WARNING,
@@ -75,6 +88,9 @@ LIVE_EVENT_TYPES = [
     EventType.SESSION_SUMMARIZED,
     EventType.SYSTEM_NOTICE,
 ]
+
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 
 
 def _public_event_payload(event_type: EventType, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -147,6 +163,26 @@ async def patch_user_state(request: UserStatePatchRequest):
             medication_time=request.medication_time,
             current_task=request.current_task,
             mood_indicator=request.mood_indicator,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/settings/providers")
+async def get_provider_settings():
+    await RUNTIME.startup()
+    return RUNTIME.get_provider_status()
+
+
+@app.patch("/api/settings/providers")
+async def patch_provider_settings(request: ProviderSettingsPatchRequest):
+    try:
+        return await RUNTIME.update_provider_settings(
+            google_api_key=request.google_api_key,
+            anthropic_api_key=request.anthropic_api_key,
+            model_mode=request.model_mode,
+            clear_google_api_key=request.clear_google_api_key,
+            clear_anthropic_api_key=request.clear_anthropic_api_key,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -244,6 +280,31 @@ async def health_check():
         return {"status": "ok"}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
+
+
+@app.get("/", include_in_schema=False)
+async def serve_frontend_root():
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+    return HTMLResponse(
+        "<h1>ADHD-OS</h1><p>Frontend build not found. Run the frontend build to use the browser app.</p>",
+        status_code=200,
+    )
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_frontend_app(full_path: str):
+    if full_path.startswith("api") or full_path == "health":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not FRONTEND_INDEX.exists():
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+
+    candidate = (FRONTEND_DIST / full_path).resolve()
+    if candidate.is_relative_to(FRONTEND_DIST.resolve()) and candidate.is_file():
+        return FileResponse(candidate)
+
+    return FileResponse(FRONTEND_INDEX)
 
 
 if __name__ == "__main__":

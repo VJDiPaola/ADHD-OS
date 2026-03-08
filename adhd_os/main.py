@@ -2,6 +2,10 @@ import asyncio
 import os
 from datetime import datetime
 
+from adhd_os.infrastructure.settings import apply_saved_environment_settings
+
+apply_saved_environment_settings()
+
 from adhd_os.config import MODEL_MODE
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.logging import logger

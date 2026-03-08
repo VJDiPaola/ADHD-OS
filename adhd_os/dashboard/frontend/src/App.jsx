@@ -13,6 +13,7 @@ import {
   endBodyDouble,
   getBootstrap,
   getHistory,
+  patchProviderSettings,
   patchUserState,
   pauseBodyDouble,
   resumeBodyDouble,
@@ -180,6 +181,13 @@ function App() {
     medicationTime: '',
     moodIndicator: '',
   })
+  const [settingsEditor, setSettingsEditor] = useState({
+    googleApiKey: '',
+    anthropicApiKey: '',
+    modelMode: 'production',
+    clearGoogleApiKey: false,
+    clearAnthropicApiKey: false,
+  })
   const [toasts, setToasts] = useState([])
   const [notificationPermission, setNotificationPermission] = useState(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
@@ -202,6 +210,13 @@ function App() {
       currentTask: bootstrap.user_state?.current_task || '',
       medicationTime: toDateTimeLocal(bootstrap.user_state?.medication_time),
       moodIndicator: '',
+    })
+    setSettingsEditor({
+      googleApiKey: '',
+      anthropicApiKey: '',
+      modelMode: bootstrap.provider_status?.model_mode || bootstrap.provider_status?.effective_model_mode || 'production',
+      clearGoogleApiKey: false,
+      clearAnthropicApiKey: false,
     })
   }
 
@@ -450,6 +465,39 @@ function App() {
       setError(null)
     } catch (patchError) {
       setError(patchError.message || 'Unable to update your state.')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function handleProviderSettingsSave(event) {
+    event.preventDefault()
+    setWorking(true)
+    try {
+      const updated = await patchProviderSettings({
+        google_api_key: settingsEditor.googleApiKey.trim() || null,
+        anthropic_api_key: settingsEditor.anthropicApiKey.trim() || null,
+        model_mode: settingsEditor.modelMode,
+        clear_google_api_key: settingsEditor.clearGoogleApiKey,
+        clear_anthropic_api_key: settingsEditor.clearAnthropicApiKey,
+      })
+      setProviderStatus(updated)
+      setSettingsEditor({
+        googleApiKey: '',
+        anthropicApiKey: '',
+        modelMode: updated.model_mode || updated.effective_model_mode || 'production',
+        clearGoogleApiKey: false,
+        clearAnthropicApiKey: false,
+      })
+      addToast(
+        'settings saved',
+        updated.model_mode_restart_required
+          ? 'Provider settings saved. Restart the app to apply the new model mode.'
+          : 'Provider settings saved locally on this machine.',
+      )
+      setError(null)
+    } catch (settingsError) {
+      setError(settingsError.message || 'Unable to save provider settings.')
     } finally {
       setWorking(false)
     }
@@ -807,12 +855,12 @@ function App() {
           <p className="eyebrow">ADHD-OS</p>
           <h1>Executive Function Workspace</h1>
           <p className="subtle">
-            Session {activeSession?.id?.slice(0, 8) || 'new'} | {providerStatus?.model_mode || 'unknown'} mode
+            Session {activeSession?.id?.slice(0, 8) || 'new'} | {providerStatus?.effective_model_mode || providerStatus?.model_mode || 'unknown'} mode
           </p>
         </div>
         <div className="topbar-actions">
           <div className={`provider-pill ${providerStatus?.ready ? 'ready' : 'warning'}`}>
-            {providerStatus?.ready ? 'Providers ready' : 'API keys missing'}
+            {providerStatus?.ready ? 'Providers ready' : 'Setup required'}
           </div>
           {notificationPermission === 'default' ? (
             <button className="secondary-button" type="button" onClick={handleNotificationPermission}>
@@ -990,6 +1038,69 @@ function App() {
               </label>
               <button className="secondary-button" type="submit" disabled={working}>
                 Save State
+              </button>
+            </form>
+          </section>
+
+          <section className="glass-card panel-card">
+            <div className="panel-heading">
+              <h2>App Settings</h2>
+              <span>{providerStatus?.ready ? 'Configured' : 'Needs setup'}</span>
+            </div>
+            <form className="state-form" onSubmit={handleProviderSettingsSave}>
+              <label>
+                Google API Key
+                <input
+                  type="password"
+                  value={settingsEditor.googleApiKey}
+                  placeholder={providerStatus?.google_api_key_present ? 'Saved on this machine' : 'Paste your Google API key'}
+                  onChange={(event) => setSettingsEditor((current) => ({ ...current, googleApiKey: event.target.value }))}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settingsEditor.clearGoogleApiKey}
+                  onChange={(event) => setSettingsEditor((current) => ({ ...current, clearGoogleApiKey: event.target.checked }))}
+                />
+                Clear saved Google key
+              </label>
+              <label>
+                Anthropic API Key
+                <input
+                  type="password"
+                  value={settingsEditor.anthropicApiKey}
+                  placeholder={providerStatus?.anthropic_api_key_present ? 'Saved on this machine' : 'Paste your Anthropic API key'}
+                  onChange={(event) => setSettingsEditor((current) => ({ ...current, anthropicApiKey: event.target.value }))}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settingsEditor.clearAnthropicApiKey}
+                  onChange={(event) => setSettingsEditor((current) => ({ ...current, clearAnthropicApiKey: event.target.checked }))}
+                />
+                Clear saved Anthropic key
+              </label>
+              <label>
+                Model Mode
+                <select
+                  value={settingsEditor.modelMode}
+                  onChange={(event) => setSettingsEditor((current) => ({ ...current, modelMode: event.target.value }))}
+                >
+                  <option value="production">Production</option>
+                  <option value="quality">Quality</option>
+                  <option value="ab_test">A/B Test</option>
+                </select>
+              </label>
+              <p className="subtle">
+                Keys are stored locally on this machine. Model mode changes apply on next app launch.
+              </p>
+              {providerStatus?.model_mode_restart_required ? (
+                <p className="subtle">Restart needed to switch from {providerStatus.effective_model_mode} to {providerStatus.model_mode}.</p>
+              ) : null}
+              <button className="secondary-button" type="submit" disabled={working}>
+                Save Settings
               </button>
             </form>
           </section>

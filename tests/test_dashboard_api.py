@@ -51,6 +51,37 @@ class DashboardApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         mock_turn.assert_awaited_once_with("Help me start", session_id="session-1")
 
+    def test_provider_settings_endpoint_persists_runtime_settings(self):
+        payload = {
+            "google_api_key_present": True,
+            "anthropic_api_key_present": True,
+            "ready": True,
+            "model_mode": "quality",
+            "effective_model_mode": "production",
+            "model_mode_restart_required": True,
+        }
+
+        with patch.object(backend.RUNTIME, "startup", AsyncMock()), \
+             patch.object(backend.RUNTIME, "update_provider_settings", AsyncMock(return_value=payload)) as mock_update:
+            with TestClient(backend.app) as client:
+                response = client.patch(
+                    "/api/settings/providers",
+                    json={
+                        "google_api_key": "google-test-key",
+                        "anthropic_api_key": "anthropic-test-key",
+                        "model_mode": "quality",
+                    },
+                )
+
+        self.assertEqual(response.status_code, 200)
+        mock_update.assert_awaited_once_with(
+            google_api_key="google-test-key",
+            anthropic_api_key="anthropic-test-key",
+            model_mode="quality",
+            clear_google_api_key=False,
+            clear_anthropic_api_key=False,
+        )
+
     def test_machine_endpoints_delegate_to_runtime(self):
         with patch.object(backend.RUNTIME, "startup", AsyncMock()), \
              patch.object(backend.RUNTIME, "start_body_double", AsyncMock(return_value={"state": "active"})) as mock_start, \
