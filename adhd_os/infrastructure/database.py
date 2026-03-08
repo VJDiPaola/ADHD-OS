@@ -115,6 +115,14 @@ class DatabaseManager:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS machine_state (
+                    name TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL
+                )
+            """)
+
             # Indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_sessions_last_updated
@@ -131,6 +139,10 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_conversation_messages_session
                 ON conversation_messages (session_id, created_at, id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_machine_state_updated
+                ON machine_state (updated_at)
             """)
 
             conn.commit()
@@ -474,6 +486,31 @@ class DatabaseManager:
                 }
                 for row in cursor.fetchall()
             ]
+
+    def save_machine_state(self, name: str, state: Dict[str, Any]):
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO machine_state (name, state_json, updated_at)
+                VALUES (?, ?, ?)
+                """,
+                (name, json.dumps(state), datetime.now().isoformat()),
+            )
+
+    def get_machine_state(self, name: str) -> Optional[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT state_json FROM machine_state WHERE name = ?",
+                (name,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return json.loads(row[0])
+
+    def clear_machine_state(self, name: str):
+        with self._get_conn() as conn:
+            conn.execute("DELETE FROM machine_state WHERE name = ?", (name,))
 
 # Global DB instance
 DB = DatabaseManager()

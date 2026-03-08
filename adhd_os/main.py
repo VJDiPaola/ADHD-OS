@@ -16,6 +16,12 @@ def _print_messages(messages):
             print(f"\n{speaker}: {message['text']}")
 
 
+def _print_live_event(prefix: str, message: str):
+    if not message:
+        return
+    print(f"\n{prefix}: {message}")
+
+
 async def run_adhd_os():
     """Main interaction loop for ADHD-OS v2.1."""
     await RUNTIME.startup()
@@ -52,7 +58,22 @@ async def run_adhd_os():
             logger.warning("Task took %sx longer than estimated", round(ratio, 1), extra={"data": data})
             print(f" [PATTERN] Task took {ratio:.1f}x longer than estimated. Adjusting multiplier...")
 
+    def on_checkin_due(data):
+        _print_live_event("CHECK-IN", data.get("message") or data.get("task"))
+
+    def on_focus_warning(data):
+        _print_live_event("FOCUS", data.get("message"))
+
+    def on_system_notice(data):
+        _print_live_event("SYSTEM", data.get("message"))
+
     EVENT_BUS.subscribe(EventType.TASK_COMPLETED, on_task_completed)
+    EVENT_BUS.subscribe(EventType.CHECKIN_DUE, on_checkin_due)
+    EVENT_BUS.subscribe(EventType.FOCUS_WARNING, on_focus_warning)
+    EVENT_BUS.subscribe(EventType.FOCUS_BLOCK_STARTED, on_system_notice)
+    EVENT_BUS.subscribe(EventType.FOCUS_BLOCK_ENDED, on_system_notice)
+    EVENT_BUS.subscribe(EventType.SYSTEM_NOTICE, on_system_notice)
+    EVENT_BUS.subscribe(EventType.SESSION_SUMMARIZED, on_system_notice)
 
     try:
         from plyer import notification
@@ -60,7 +81,7 @@ async def run_adhd_os():
         def send_notification(data):
             notification.notify(
                 title="ADHD-OS Check-in",
-                message=f"{data.get('task', 'Focus')}: Check-in {data.get('checkin_number', 0)}",
+                message=data.get("message") or f"{data.get('task', 'Focus')}: Check-in {data.get('checkin_number', 0)}",
                 app_name="ADHD-OS",
                 timeout=10,
             )

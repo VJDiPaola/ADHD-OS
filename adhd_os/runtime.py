@@ -103,6 +103,8 @@ class ADHDOSRuntime:
             capture_event_loop()
             self.user_state.load_from_db()
             _ = self.runner
+            await self.body_double.restore_state()
+            await self.focus_timer.restore_state()
             self._started = True
 
     async def health_check(self):
@@ -506,6 +508,7 @@ class ADHDOSRuntime:
             EventType.FOCUS_BLOCK_STARTED.value: "system_notice",
             EventType.FOCUS_BLOCK_ENDED.value: "system_notice",
             EventType.SESSION_SUMMARIZED.value: "system_notice",
+            EventType.SYSTEM_NOTICE.value: "system_notice",
         }
         return mapping.get(event_type, "system_notice")
 

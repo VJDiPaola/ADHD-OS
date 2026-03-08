@@ -93,6 +93,14 @@ class TestDatabaseManager(unittest.TestCase):
         self.assertIsNotNone(conn)
         conn.close()
 
+    def test_machine_state_round_trip(self):
+        snapshot = {"state": "active", "task": "write code", "remaining_minutes": 12}
+        self.db.save_machine_state("body_double", snapshot)
+        self.assertEqual(self.db.get_machine_state("body_double"), snapshot)
+
+        self.db.clear_machine_state("body_double")
+        self.assertIsNone(self.db.get_machine_state("body_double"))
+
 
 # ---------------------------------------------------------------------------
 # Event Bus
@@ -218,10 +226,19 @@ class TestBodyDoubleMachine(unittest.TestCase):
     """Tests for infrastructure/machines.py — BodyDoubleMachine"""
 
     def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        from adhd_os.infrastructure.database import DatabaseManager
         from adhd_os.infrastructure.event_bus import EventBus
         from adhd_os.infrastructure.machines import BodyDoubleMachine
-        self.bus = EventBus()
-        self.machine = BodyDoubleMachine(self.bus)
+        self.db = DatabaseManager(db_path=self.tmp.name)
+        self.bus = EventBus(db=self.db)
+        self.machine = BodyDoubleMachine(self.bus, db=self.db)
+
+    def tearDown(self):
+        if self.machine._active_task:
+            self.machine._active_task.cancel()
+        os.unlink(self.tmp.name)
 
     def test_initial_state_idle(self):
         from adhd_os.infrastructure.machines import BodyDoubleState
@@ -238,6 +255,9 @@ class TestBodyDoubleMachine(unittest.TestCase):
 
         from adhd_os.infrastructure.machines import BodyDoubleState
         self.assertEqual(self.machine.state, BodyDoubleState.ACTIVE)
+        snapshot = self.db.get_machine_state("body_double")
+        self.assertEqual(snapshot["state"], "active")
+        self.assertEqual(snapshot["task"], "write code")
 
         # Cancel background task to avoid dangling coroutine
         if self.machine._active_task:
@@ -261,15 +281,16 @@ class TestBodyDoubleMachine(unittest.TestCase):
             return await self.machine.end_session(completed=True)
         result = asyncio.run(run())
         self.assertEqual(result["status"], "completed")
+        self.assertIsNone(self.db.get_machine_state("body_double"))
 
     def test_pause_session(self):
         async def run():
             await self.machine.start_session("task", 10)
-            if self.machine._active_task:
-                self.machine._active_task.cancel()
             return await self.machine.pause_session("break")
         result = asyncio.run(run())
         self.assertEqual(result["status"], "paused")
+        snapshot = self.db.get_machine_state("body_double")
+        self.assertEqual(snapshot["state"], "paused")
 
     def test_end_idle_session(self):
         result = asyncio.run(self.machine.end_session())
@@ -284,15 +305,26 @@ class TestFocusTimerMachine(unittest.TestCase):
     """Tests for infrastructure/machines.py — FocusTimerMachine"""
 
     def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp.close()
+        from adhd_os.infrastructure.database import DatabaseManager
         from adhd_os.infrastructure.event_bus import EventBus
         from adhd_os.infrastructure.machines import FocusTimerMachine
-        self.bus = EventBus()
-        self.timer = FocusTimerMachine(self.bus)
+        self.db = DatabaseManager(db_path=self.tmp.name)
+        self.bus = EventBus(db=self.db)
+        self.timer = FocusTimerMachine(self.bus, db=self.db)
+
+    def tearDown(self):
+        if self.timer._warning_task:
+            self.timer._warning_task.cancel()
+        os.unlink(self.tmp.name)
 
     def test_set_hard_stop(self):
         result = asyncio.run(self.timer.set_hard_stop(60, "dinner"))
         self.assertEqual(result["status"], "guardrail_set")
         self.assertIsNotNone(self.timer.hard_stop_time)
+        snapshot = self.db.get_machine_state("focus_timer")
+        self.assertEqual(snapshot["hard_stop_reason"], "dinner")
         if self.timer._warning_task:
             self.timer._warning_task.cancel()
 
@@ -305,6 +337,7 @@ class TestFocusTimerMachine(unittest.TestCase):
         result = asyncio.run(run())
         self.assertEqual(result["status"], "cleared")
         self.assertIsNone(self.timer.hard_stop_time)
+        self.assertIsNone(self.db.get_machine_state("focus_timer"))
 
 
 # ---------------------------------------------------------------------------
@@ -313,23 +346,24 @@ class TestFocusTimerMachine(unittest.TestCase):
 class TestCrisisKeywords(unittest.TestCase):
     """Tests that crisis keyword detection works correctly."""
 
-    CRISIS_KEYWORDS = ["suicide", "kill myself", "want to die", "end it all", "self harm"]
-
-    def _triggers_crisis(self, text: str) -> bool:
-        return any(k in text.lower() for k in self.CRISIS_KEYWORDS)
-
     def test_positive_matches(self):
-        self.assertTrue(self._triggers_crisis("I want to kill myself"))
-        self.assertTrue(self._triggers_crisis("thinking about suicide"))
-        self.assertTrue(self._triggers_crisis("I want to die"))
-        self.assertTrue(self._triggers_crisis("just end it all"))
-        self.assertTrue(self._triggers_crisis("self harm thoughts"))
+        from adhd_os.runtime import ADHDOSRuntime
+
+        runtime = ADHDOSRuntime()
+        self.assertTrue(runtime._is_crisis_message("I want to kill myself"))
+        self.assertTrue(runtime._is_crisis_message("thinking about suicide"))
+        self.assertTrue(runtime._is_crisis_message("I want to die"))
+        self.assertTrue(runtime._is_crisis_message("just end it all"))
+        self.assertTrue(runtime._is_crisis_message("self harm thoughts"))
 
     def test_negative_matches(self):
-        self.assertFalse(self._triggers_crisis("I'm stuck on my homework"))
-        self.assertFalse(self._triggers_crisis("This task is killing me"))
-        self.assertFalse(self._triggers_crisis("I need help with time management"))
-        self.assertFalse(self._triggers_crisis(""))
+        from adhd_os.runtime import ADHDOSRuntime
+
+        runtime = ADHDOSRuntime()
+        self.assertFalse(runtime._is_crisis_message("I'm stuck on my homework"))
+        self.assertFalse(runtime._is_crisis_message("This task is killing me"))
+        self.assertFalse(runtime._is_crisis_message("I need help with time management"))
+        self.assertFalse(runtime._is_crisis_message(""))
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -69,22 +70,28 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.db_patcher = patch("adhd_os.infrastructure.database.DB", self.db)
         self.db_patcher.start()
 
-        self.event_bus = EventBus()
+        self.event_bus = EventBus(db=self.db)
         self.user_state = UserState(user_id="test-user")
-        self.session_service = SqliteSessionService()
+        self.session_service = SqliteSessionService(db=self.db)
+        self.body_double = BodyDoubleMachine(self.event_bus, db=self.db)
+        self.focus_timer = FocusTimerMachine(self.event_bus, db=self.db)
         self.runtime = ADHDOSRuntime(
             app_name="test_app",
             user_state=self.user_state,
             db=self.db,
             event_bus=self.event_bus,
-            body_double=BodyDoubleMachine(self.event_bus),
-            focus_timer=FocusTimerMachine(self.event_bus),
+            body_double=self.body_double,
+            focus_timer=self.focus_timer,
             agent=None,
             runner_factory=FakeRunner,
             session_service=self.session_service,
         )
 
     def tearDown(self):
+        if self.body_double._active_task:
+            self.body_double._active_task.cancel()
+        if self.focus_timer._warning_task:
+            self.focus_timer._warning_task.cancel()
         self.db_patcher.stop()
         os.unlink(self.temp.name)
 
@@ -163,6 +170,39 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.get_state("energy_level"), 8)
         self.assertEqual(self.db.get_state("current_task"), "Quarterly report")
 
+    async def test_startup_restores_machine_state(self):
+        now = datetime.now()
+        self.db.save_machine_state(
+            "body_double",
+            {
+                "state": "active",
+                "task": "Draft launch email",
+                "duration_minutes": 30,
+                "checkin_interval": 10,
+                "start_time": (now - timedelta(minutes=5)).isoformat(),
+                "end_time": (now + timedelta(minutes=25)).isoformat(),
+                "checkin_count": 0,
+                "paused_remaining_seconds": None,
+            },
+        )
+        self.db.save_machine_state(
+            "focus_timer",
+            {
+                "hard_stop_time": (now + timedelta(minutes=40)).isoformat(),
+                "hard_stop_reason": "School pickup",
+            },
+        )
+
+        await self.runtime.startup()
+
+        body_status = self.runtime.get_body_double_status()
+        guardrail_status = self.runtime.get_focus_guardrail_status()
+
+        self.assertEqual(body_status["state"], "active")
+        self.assertEqual(body_status["task"], "Draft launch email")
+        self.assertEqual(guardrail_status["state"], "active")
+        self.assertEqual(guardrail_status["reason"], "School pickup")
+
     async def test_session_lock_serializes_concurrent_turns(self):
         from adhd_os.runtime import ADHDOSRuntime
 
@@ -171,8 +211,8 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             user_state=self.user_state,
             db=self.db,
             event_bus=self.event_bus,
-            body_double=self.runtime.body_double,
-            focus_timer=self.runtime.focus_timer,
+            body_double=self.body_double,
+            focus_timer=self.focus_timer,
             agent=None,
             runner_factory=DelayedRunner,
             session_service=self.session_service,

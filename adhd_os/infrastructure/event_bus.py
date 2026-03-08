@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Dict, List, Any, Callable
 from enum import Enum
 
+from adhd_os.infrastructure import database as database_module
+
 logger = logging.getLogger(__name__)
 
 class EventType(Enum):
@@ -20,15 +22,17 @@ class EventType(Enum):
     ENERGY_UPDATED = "energy_updated"
     PATTERN_DETECTED = "pattern_detected"
     SESSION_SUMMARIZED = "session_summarized"
+    SYSTEM_NOTICE = "system_notice"
 
 class EventBus:
     """
     Async event bus for decoupled component communication.
     In production, this would use Redis Streams or Cloud Pub/Sub.
     """
-    def __init__(self):
+    def __init__(self, db=None):
         self._subscribers: Dict[EventType, List[Callable]] = {}
         self._event_log: deque = deque(maxlen=1000)
+        self.db = db or database_module.DB
     
     def subscribe(self, event_type: EventType, handler: Callable):
         """Subscribe a handler to an event type."""
@@ -56,8 +60,7 @@ class EventBus:
 
         # Persist to DB for cross-session pattern analysis
         try:
-            from adhd_os.infrastructure.database import DB
-            DB.persist_bus_event(event_type.value, json.dumps(data, default=str))
+            self.db.persist_bus_event(event_type.value, json.dumps(data, default=str))
         except Exception:
             pass  # best-effort; don't break the event pipeline
 

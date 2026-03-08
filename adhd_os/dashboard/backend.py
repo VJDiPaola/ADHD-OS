@@ -73,6 +73,7 @@ LIVE_EVENT_TYPES = [
     EventType.FOCUS_BLOCK_STARTED,
     EventType.FOCUS_BLOCK_ENDED,
     EventType.SESSION_SUMMARIZED,
+    EventType.SYSTEM_NOTICE,
 ]
 
 
