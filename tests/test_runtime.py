@@ -58,6 +58,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp.close()
+        self.original_env = {
+            "GOOGLE_API_KEY": os.environ.get("GOOGLE_API_KEY"),
+            "ANTHROPIC_API_KEY": os.environ.get("ANTHROPIC_API_KEY"),
+            "ADHD_OS_MODEL_MODE": os.environ.get("ADHD_OS_MODEL_MODE"),
+        }
 
         from adhd_os.infrastructure.database import DatabaseManager
         from adhd_os.infrastructure.event_bus import EventBus
@@ -92,6 +97,11 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.body_double._active_task.cancel()
         if self.focus_timer._warning_task:
             self.focus_timer._warning_task.cancel()
+        for key, value in self.original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
         self.db_patcher.stop()
         os.unlink(self.temp.name)
 
@@ -170,6 +180,77 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.get_state("energy_level"), 8)
         self.assertEqual(self.db.get_state("current_task"), "Quarterly report")
 
+    async def test_update_provider_settings_persists_locally(self):
+        from adhd_os.infrastructure import credentials as creds_mod
+
+        stored = {}
+
+        def fake_store(key, value, *, db=None):
+            stored[key] = value
+
+        def fake_load(key, *, db=None):
+            return stored.get(key)
+
+        def fake_delete(key, *, db=None):
+            stored.pop(key, None)
+
+        with patch.object(creds_mod, "store_credential", side_effect=fake_store), \
+             patch.object(creds_mod, "load_credential", side_effect=fake_load), \
+             patch.object(creds_mod, "delete_credential", side_effect=fake_delete), \
+             patch("adhd_os.runtime.store_credential", side_effect=fake_store), \
+             patch("adhd_os.runtime.load_credential", side_effect=fake_load), \
+             patch("adhd_os.runtime.delete_credential", side_effect=fake_delete):
+            status = await self.runtime.update_provider_settings(
+                google_api_key="google-test-key",
+                anthropic_api_key="anthropic-test-key",
+                model_mode="quality",
+            )
+
+        self.assertTrue(status["google_api_key_present"])
+        self.assertTrue(status["anthropic_api_key_present"])
+        self.assertEqual(status["model_mode"], "quality")
+        self.assertEqual(stored.get("google_api_key"), "google-test-key")
+        self.assertEqual(stored.get("anthropic_api_key"), "anthropic-test-key")
+        self.assertEqual(self.db.get_app_setting("model_mode"), "quality")
+
+    async def test_create_task_item_sets_current_task_when_doing(self):
+        result = await self.runtime.create_task_item(
+            title="Quarterly report",
+            status="doing",
+            session_id="session-1",
+        )
+
+        self.assertEqual(result["task"]["status"], "doing")
+        self.assertEqual(result["user_state"]["current_task"], "Quarterly report")
+        self.assertEqual(self.db.get_state("current_task"), "Quarterly report")
+
+    async def test_moving_task_out_of_doing_clears_current_task(self):
+        created = await self.runtime.create_task_item(
+            title="Quarterly report",
+            status="doing",
+            session_id="session-1",
+        )
+
+        result = await self.runtime.update_task_item(created["task"]["id"], status="today")
+
+        self.assertEqual(result["task"]["status"], "today")
+        self.assertIsNone(result["user_state"]["current_task"])
+        self.assertIsNone(self.db.get_state("current_task"))
+
+    async def test_decompose_task_to_checklist_creates_task_with_steps(self):
+        result = await self.runtime.decompose_task_to_checklist(
+            task="Draft launch email",
+            estimated_minutes=30,
+            status="today",
+            session_id="session-1",
+        )
+
+        self.assertEqual(result["task"]["title"], "Draft launch email")
+        self.assertEqual(result["task"]["status"], "today")
+        self.assertGreater(len(result["task"]["steps"]), 0)
+        self.assertEqual(result["tasks"][0]["id"], result["task"]["id"])
+        self.assertIn("stats", result)
+
     async def test_startup_restores_machine_state(self):
         now = datetime.now()
         self.db.save_machine_state(
@@ -202,6 +283,19 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(body_status["task"], "Draft launch email")
         self.assertEqual(guardrail_status["state"], "active")
         self.assertEqual(guardrail_status["reason"], "School pickup")
+
+    async def test_resume_body_double_reactivates_paused_session(self):
+        await self.runtime.start_body_double(
+            task="Draft launch email",
+            duration_minutes=15,
+            checkin_interval=5,
+        )
+        paused_status = await self.runtime.pause_body_double("Coffee refill")
+        resumed_status = await self.runtime.resume_body_double()
+
+        self.assertEqual(paused_status["state"], "paused")
+        self.assertEqual(resumed_status["state"], "active")
+        self.assertEqual(resumed_status["task"], "Draft launch email")
 
     async def test_session_lock_serializes_concurrent_turns(self):
         from adhd_os.runtime import ADHDOSRuntime

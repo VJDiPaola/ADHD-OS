@@ -75,7 +75,9 @@ class BodyDoubleMachine:
         await self.event_bus.publish(
             EventType.FOCUS_BLOCK_STARTED,
             {
+                "machine": "body_double",
                 "task": task,
+                "state": BodyDoubleState.ACTIVE.value,
                 "duration": duration_minutes,
                 "checkin_interval": checkin_interval,
                 "message": f"Body-double started for '{task}'.",
@@ -125,6 +127,7 @@ class BodyDoubleMachine:
             await self.event_bus.publish(
                 EventType.SYSTEM_NOTICE,
                 {
+                    "machine": "body_double",
                     "task": self.task,
                     "state": self.state.value,
                     "message": f"Restored paused body-double session for '{self.task}'.",
@@ -151,6 +154,7 @@ class BodyDoubleMachine:
         await self.event_bus.publish(
             EventType.SYSTEM_NOTICE,
             {
+                "machine": "body_double",
                 "task": self.task,
                 "state": self.state.value,
                 "message": f"Restored body-double session for '{self.task}'.",
@@ -215,7 +219,9 @@ class BodyDoubleMachine:
         await self.event_bus.publish(
             EventType.FOCUS_BLOCK_ENDED,
             {
+                "machine": "body_double",
                 "task": task,
+                "state": BodyDoubleState.IDLE.value,
                 "duration": duration,
                 "checkins_completed": checkins,
                 "status": "completed",
@@ -241,6 +247,7 @@ class BodyDoubleMachine:
         await self.event_bus.publish(
             EventType.SYSTEM_NOTICE,
             {
+                "machine": "body_double",
                 "task": self.task,
                 "reason": reason,
                 "state": self.state.value,
@@ -253,6 +260,44 @@ class BodyDoubleMachine:
             "task": self.task,
             "reason": reason,
             "message": f"Paused '{self.task}'.",
+        }
+
+    async def resume_session(self) -> Dict[str, Any]:
+        """Resumes a paused session without counting paused time as work time."""
+        if self.state != BodyDoubleState.PAUSED or not self.task:
+            return {"status": "error", "message": "No paused session to resume"}
+
+        remaining_seconds = max(0, int(self.paused_remaining_seconds or 0))
+        if remaining_seconds <= 0:
+            self._reset_state(clear_snapshot=True)
+            return {"status": "error", "message": "Paused session has no time remaining"}
+
+        total_seconds = max(0, self.duration_minutes * 60)
+        elapsed_active_seconds = max(0, total_seconds - remaining_seconds)
+        now = datetime.now()
+
+        self.start_time = now - timedelta(seconds=elapsed_active_seconds)
+        self.end_time = now + timedelta(seconds=remaining_seconds)
+        self.paused_remaining_seconds = None
+        self.state = BodyDoubleState.ACTIVE
+        self._persist_snapshot()
+        self._active_task = asyncio.create_task(self._monitoring_loop())
+
+        await self.event_bus.publish(
+            EventType.SYSTEM_NOTICE,
+            {
+                "machine": "body_double",
+                "task": self.task,
+                "state": self.state.value,
+                "message": f"Resumed body-double session for '{self.task}'.",
+            },
+        )
+
+        return {
+            "status": "resumed",
+            "task": self.task,
+            "remaining_minutes": _minutes_from_seconds(remaining_seconds),
+            "message": f"Resumed '{self.task}'.",
         }
 
     async def end_session(self, completed: bool = True) -> Dict[str, Any]:
@@ -268,7 +313,9 @@ class BodyDoubleMachine:
         await self.event_bus.publish(
             EventType.FOCUS_BLOCK_ENDED,
             {
+                "machine": "body_double",
                 "task": task,
+                "state": BodyDoubleState.IDLE.value,
                 "status": status,
                 "checkins_completed": checkins,
                 "message": f"Body-double session {status} for '{task}'.",
@@ -401,6 +448,8 @@ class FocusTimerMachine:
         await self.event_bus.publish(
             EventType.SYSTEM_NOTICE,
             {
+                "machine": "focus_guardrail",
+                "state": "active",
                 "reason": reason,
                 "hard_stop_time": self.hard_stop_time.isoformat(),
                 "message": f"Hard stop set for {self.hard_stop_time.strftime('%H:%M')} ({reason}).",
@@ -438,6 +487,8 @@ class FocusTimerMachine:
         await self.event_bus.publish(
             EventType.SYSTEM_NOTICE,
             {
+                "machine": "focus_guardrail",
+                "state": "active",
                 "reason": self.hard_stop_reason,
                 "hard_stop_time": self.hard_stop_time.isoformat(),
                 "message": f"Restored hard stop for {self.hard_stop_time.strftime('%H:%M')} ({self.hard_stop_reason}).",
@@ -494,6 +545,8 @@ class FocusTimerMachine:
         await self.event_bus.publish(
             EventType.SYSTEM_NOTICE,
             {
+                "machine": "focus_guardrail",
+                "state": "idle",
                 "message": "Guardrail cleared.",
             },
         )

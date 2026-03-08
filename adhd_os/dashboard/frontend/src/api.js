@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const API_BASE = import.meta.env.VITE_API_URL || '/api'
 
 async function requestJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -36,6 +36,10 @@ export function getHistory() {
   return requestJson('/history')
 }
 
+export function getTasks() {
+  return requestJson('/tasks')
+}
+
 export function sendChatTurn(payload) {
   return requestJson('/chat/turn', {
     method: 'POST',
@@ -43,8 +47,43 @@ export function sendChatTurn(payload) {
   })
 }
 
+export function createTask(payload) {
+  return requestJson('/tasks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateTask(taskId, payload) {
+  return requestJson(`/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateTaskStep(taskId, stepId, payload) {
+  return requestJson(`/tasks/${encodeURIComponent(taskId)}/steps/${encodeURIComponent(stepId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function decomposeTask(payload) {
+  return requestJson('/tasks/decompose', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function patchUserState(payload) {
   return requestJson('/user-state', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function patchProviderSettings(payload) {
+  return requestJson('/settings/providers', {
     method: 'PATCH',
     body: JSON.stringify(payload),
   })
@@ -67,6 +106,12 @@ export function pauseBodyDouble(payload) {
   return requestJson('/body-double/pause', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export function resumeBodyDouble() {
+  return requestJson('/body-double/resume', {
+    method: 'POST',
   })
 }
 

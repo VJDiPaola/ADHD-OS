@@ -3,14 +3,19 @@ import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
+from adhd_os.infrastructure.settings import apply_saved_environment_settings
+
+apply_saved_environment_settings()
+
 from adhd_os.runtime import RUNTIME
 
 
@@ -65,6 +70,39 @@ class FocusGuardrailRequest(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
+class TaskCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    status: str = Field(default="inbox")
+    estimated_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    session_id: Optional[str] = None
+
+
+class TaskUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
+
+class TaskStepUpdateRequest(BaseModel):
+    completed: bool
+
+
+class TaskDecomposeRequest(BaseModel):
+    task: str = Field(..., min_length=1)
+    estimated_minutes: int = Field(..., ge=1, le=480)
+    status: str = Field(default="today")
+    session_id: Optional[str] = None
+
+
+class ProviderSettingsPatchRequest(BaseModel):
+    google_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    model_mode: Optional[str] = None
+    clear_google_api_key: bool = False
+    clear_anthropic_api_key: bool = False
+
+
 LIVE_EVENT_TYPES = [
     EventType.CHECKIN_DUE,
     EventType.FOCUS_WARNING,
@@ -75,6 +113,9 @@ LIVE_EVENT_TYPES = [
     EventType.SESSION_SUMMARIZED,
     EventType.SYSTEM_NOTICE,
 ]
+
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+FRONTEND_INDEX = FRONTEND_DIST / "index.html"
 
 
 def _public_event_payload(event_type: EventType, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -152,6 +193,26 @@ async def patch_user_state(request: UserStatePatchRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/settings/providers")
+async def get_provider_settings():
+    await RUNTIME.startup()
+    return RUNTIME.get_provider_status()
+
+
+@app.patch("/api/settings/providers")
+async def patch_provider_settings(request: ProviderSettingsPatchRequest):
+    try:
+        return await RUNTIME.update_provider_settings(
+            google_api_key=request.google_api_key,
+            anthropic_api_key=request.anthropic_api_key,
+            model_mode=request.model_mode,
+            clear_google_api_key=request.clear_google_api_key,
+            clear_anthropic_api_key=request.clear_anthropic_api_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/sessions/{session_id}/shutdown")
 async def post_shutdown(session_id: str):
     try:
@@ -170,6 +231,64 @@ async def get_stats():
 async def get_history(limit: int = Query(default=50, ge=1, le=200)):
     await RUNTIME.startup()
     return RUNTIME.get_task_history(limit=limit)
+
+
+@app.get("/api/tasks")
+async def get_tasks():
+    await RUNTIME.startup()
+    return RUNTIME.get_task_board()
+
+
+@app.post("/api/tasks")
+async def post_task(request: TaskCreateRequest):
+    try:
+        return await RUNTIME.create_task_item(
+            title=request.title,
+            description=request.description,
+            status=request.status,
+            session_id=request.session_id,
+            estimated_minutes=request.estimated_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/tasks/{task_id}")
+async def patch_task(task_id: int, request: TaskUpdateRequest):
+    try:
+        return await RUNTIME.update_task_item(
+            task_id,
+            title=request.title,
+            description=request.description,
+            status=request.status,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail.startswith("Unknown task") else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@app.patch("/api/tasks/{task_id}/steps/{step_id}")
+async def patch_task_step(task_id: int, step_id: int, request: TaskStepUpdateRequest):
+    try:
+        return await RUNTIME.update_task_step_item(task_id, step_id, completed=request.completed)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail.startswith("Unknown task step") else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@app.post("/api/tasks/decompose")
+async def post_task_decomposition(request: TaskDecomposeRequest):
+    try:
+        return await RUNTIME.decompose_task_to_checklist(
+            task=request.task,
+            estimated_minutes=request.estimated_minutes,
+            status=request.status,
+            session_id=request.session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/sessions")
@@ -196,6 +315,11 @@ async def post_body_double_start(request: BodyDoubleStartRequest):
 @app.post("/api/body-double/pause")
 async def post_body_double_pause(request: BodyDoublePauseRequest):
     return await RUNTIME.pause_body_double(reason=request.reason)
+
+
+@app.post("/api/body-double/resume")
+async def post_body_double_resume():
+    return await RUNTIME.resume_body_double()
 
 
 @app.post("/api/body-double/end")
@@ -239,6 +363,31 @@ async def health_check():
         return {"status": "ok"}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}") from exc
+
+
+@app.get("/", include_in_schema=False)
+async def serve_frontend_root():
+    if FRONTEND_INDEX.exists():
+        return FileResponse(FRONTEND_INDEX)
+    return HTMLResponse(
+        "<h1>ADHD-OS</h1><p>Frontend build not found. Run the frontend build to use the browser app.</p>",
+        status_code=200,
+    )
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_frontend_app(full_path: str):
+    if full_path.startswith("api") or full_path == "health":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not FRONTEND_INDEX.exists():
+        raise HTTPException(status_code=404, detail="Frontend build not found")
+
+    candidate = (FRONTEND_DIST / full_path).resolve()
+    if candidate.is_relative_to(FRONTEND_DIST.resolve()) and candidate.is_file():
+        return FileResponse(candidate)
+
+    return FileResponse(FRONTEND_INDEX)
 
 
 if __name__ == "__main__":

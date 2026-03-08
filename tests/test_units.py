@@ -101,6 +101,59 @@ class TestDatabaseManager(unittest.TestCase):
         self.db.clear_machine_state("body_double")
         self.assertIsNone(self.db.get_machine_state("body_double"))
 
+    def test_app_setting_round_trip(self):
+        self.db.save_app_setting("model_mode", "quality")
+        self.assertEqual(self.db.get_app_setting("model_mode"), "quality")
+
+        self.db.delete_app_setting("model_mode")
+        self.assertIsNone(self.db.get_app_setting("model_mode"))
+
+    def test_task_board_round_trip_with_steps(self):
+        task = self.db.create_task(
+            title="Quarterly report",
+            description="Finish the summary",
+            status="today",
+            estimated_minutes=45,
+            activation_phrase="I am just going to open the report doc.",
+        )
+        self.db.create_task_steps(
+            task["id"],
+            [
+                {
+                    "step_number": 1,
+                    "text": "Open the report doc.",
+                    "duration_minutes": 5,
+                    "is_checkpoint": False,
+                },
+                {
+                    "step_number": 2,
+                    "text": "Draft the summary block.",
+                    "duration_minutes": 10,
+                    "is_checkpoint": False,
+                },
+            ],
+        )
+
+        stored = self.db.get_task(task["id"])
+
+        self.assertEqual(stored["title"], "Quarterly report")
+        self.assertEqual(len(stored["steps"]), 2)
+        self.assertEqual(stored["steps"][0]["step_number"], 1)
+
+    def test_done_tasks_appear_in_today_count_and_history(self):
+        task = self.db.create_task(
+            title="Pay rent",
+            status="today",
+            estimated_minutes=15,
+        )
+
+        updated = self.db.update_task(task["id"], status="done")
+        history = self.db.get_task_history_items(limit=10)
+
+        self.assertIsNotNone(updated["completed_at"])
+        self.assertEqual(self.db.get_tasks_completed_today(), 1)
+        self.assertEqual(history[0]["task_type"], "Pay rent")
+
 
 # ---------------------------------------------------------------------------
 # Event Bus
@@ -291,6 +344,17 @@ class TestBodyDoubleMachine(unittest.TestCase):
         self.assertEqual(result["status"], "paused")
         snapshot = self.db.get_machine_state("body_double")
         self.assertEqual(snapshot["state"], "paused")
+
+    def test_resume_session(self):
+        async def run():
+            await self.machine.start_session("task", 10)
+            await self.machine.pause_session("break")
+            return await self.machine.resume_session()
+
+        result = asyncio.run(run())
+        self.assertEqual(result["status"], "resumed")
+        snapshot = self.db.get_machine_state("body_double")
+        self.assertEqual(snapshot["state"], "active")
 
     def test_end_idle_session(self):
         result = asyncio.run(self.machine.end_session())

@@ -229,6 +229,21 @@ def activate_body_double(task: str, duration_minutes: int, checkin_interval: int
     return {"status": "activating", "message": f"Starting body double for '{task}'..."}
 
 @FunctionTool
+async def pause_body_double(reason: str = "") -> Dict:
+    """Pauses the current body-double session."""
+    return await BODY_DOUBLE.pause_session(reason)
+
+@FunctionTool
+async def resume_body_double() -> Dict:
+    """Resumes the current paused body-double session."""
+    return await BODY_DOUBLE.resume_session()
+
+@FunctionTool
+async def end_body_double(completed: bool = True) -> Dict:
+    """Ends the current body-double session."""
+    return await BODY_DOUBLE.end_session(completed)
+
+@FunctionTool
 def get_body_double_status() -> Dict:
     """Returns current body double session status."""
     return BODY_DOUBLE.get_status()
