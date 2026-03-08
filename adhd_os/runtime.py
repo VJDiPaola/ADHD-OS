@@ -10,6 +10,7 @@ from google.genai import types
 
 from adhd_os.agents.orchestrator import orchestrator
 from adhd_os.config import MODEL_MODE, ModelMode
+from adhd_os.infrastructure.cache import TASK_CACHE
 from adhd_os.infrastructure.database import DB
 from adhd_os.infrastructure.event_bus import EVENT_BUS, EventType
 from adhd_os.infrastructure.machines import BODY_DOUBLE, FOCUS_TIMER
@@ -19,6 +20,7 @@ from adhd_os.infrastructure.settings import (
     GOOGLE_API_KEY_SETTING,
     MODEL_MODE_SETTING,
 )
+from adhd_os.models.schemas import DecompositionPlan, TaskStep
 from adhd_os.state import USER_STATE
 from adhd_os.tools.common import capture_event_loop
 
@@ -39,6 +41,7 @@ def _as_iso(value: Any) -> Optional[str]:
 
 class ADHDOSRuntime:
     APP_NAME = "adhd_os"
+    TASK_STATUSES = ("inbox", "today", "doing", "done")
     CRISIS_KEYWORDS = [
         "suicide",
         "kill myself",
@@ -123,6 +126,7 @@ class ADHDOSRuntime:
         return {
             "active_session": self._serialize_session(session),
             "messages": self.db.get_conversation_messages(session.id),
+            "tasks": self.get_task_board(),
             "stats": self.get_stats_snapshot(),
             "user_state": self.get_user_state_snapshot(),
             "body_double": self.get_body_double_status(),
@@ -340,6 +344,103 @@ class ADHDOSRuntime:
 
         return self.get_provider_status()
 
+    async def create_task_item(
+        self,
+        *,
+        title: str,
+        description: Optional[str] = None,
+        status: str = "inbox",
+        session_id: Optional[str] = None,
+        estimated_minutes: Optional[int] = None,
+        source: str = "manual",
+        activation_phrase: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        await self.startup()
+        normalized_status = self._validate_task_status(status)
+        task = self.db.create_task(
+            title=title,
+            description=description,
+            status=normalized_status,
+            source=source,
+            session_id=session_id,
+            estimated_minutes=estimated_minutes,
+            activation_phrase=activation_phrase,
+        )
+        self._sync_current_task_from_status(task)
+        return self._task_response(task)
+
+    async def update_task_item(
+        self,
+        task_id: int,
+        *,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        await self.startup()
+        normalized_status = self._validate_task_status(status) if status is not None else None
+        task = self.db.update_task(
+            task_id,
+            title=title,
+            description=description,
+            status=normalized_status,
+        )
+        if not task:
+            raise ValueError(f"Unknown task: {task_id}")
+        self._sync_current_task_from_status(task)
+        return self._task_response(task)
+
+    async def update_task_step_item(self, task_id: int, step_id: int, *, completed: bool) -> Dict[str, Any]:
+        await self.startup()
+        task = self.db.update_task_step(task_id, step_id, completed=completed)
+        if not task:
+            raise ValueError(f"Unknown task step: {step_id}")
+        self._sync_current_task_from_status(task)
+        return self._task_response(task)
+
+    async def decompose_task_to_checklist(
+        self,
+        *,
+        task: str,
+        estimated_minutes: int,
+        status: str = "today",
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        await self.startup()
+        normalized_status = self._validate_task_status(status)
+        plan, used_cache = self._build_task_plan(task, estimated_minutes)
+        created_task = self.db.create_task(
+            title=plan.task_name,
+            description=self._plan_description(plan),
+            status=normalized_status,
+            source="decomposition",
+            session_id=session_id,
+            estimated_minutes=plan.calibrated_estimate_minutes,
+            activation_phrase=plan.activation_phrase,
+        )
+        self.db.create_task_steps(
+            created_task["id"],
+            [
+                {
+                    "step_number": step.step_number,
+                    "text": step.action,
+                    "duration_minutes": step.duration_minutes,
+                    "is_checkpoint": step.is_checkpoint,
+                }
+                for step in plan.steps
+            ],
+        )
+        stored_task = self.db.get_task(created_task["id"])
+        self._sync_current_task_from_status(stored_task)
+        response = self._task_response(stored_task)
+        response.update(
+            {
+                "plan": plan.model_dump(),
+                "used_cache": used_cache,
+            }
+        )
+        return response
+
     async def start_body_double(
         self,
         *,
@@ -387,6 +488,9 @@ class ADHDOSRuntime:
 
     def get_task_history(self, limit: int = 50) -> List[Dict[str, Any]]:
         return self.db.get_task_history_items(limit)
+
+    def get_task_board(self) -> List[Dict[str, Any]]:
+        return self.db.get_tasks()
 
     def get_user_state_snapshot(self) -> Dict[str, Any]:
         return {
@@ -551,9 +655,18 @@ class ADHDOSRuntime:
         return {
             "session_id": session_id,
             "messages": messages,
+            "tasks": self.get_task_board(),
             "user_state": self.get_user_state_snapshot(),
             "body_double": self.get_body_double_status(),
             "focus_guardrail": self.get_focus_guardrail_status(),
+        }
+
+    def _task_response(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "task": task,
+            "tasks": self.get_task_board(),
+            "stats": self.get_stats_snapshot(),
+            "user_state": self.get_user_state_snapshot(),
         }
 
     def _load_saved_provider_environment(self):
@@ -578,6 +691,154 @@ class ADHDOSRuntime:
             EventType.SYSTEM_NOTICE.value: "system_notice",
         }
         return mapping.get(event_type, "system_notice")
+
+    def _validate_task_status(self, status: str) -> str:
+        clean_status = (status or "").strip().lower()
+        if clean_status not in self.TASK_STATUSES:
+            raise ValueError(f"Invalid task status: {status}")
+        return clean_status
+
+    def _build_task_plan(self, task: str, estimated_minutes: int) -> tuple[DecompositionPlan, bool]:
+        clean_task = (task or "").strip()
+        if not clean_task:
+            raise ValueError("Task cannot be empty.")
+
+        estimate = max(1, int(estimated_minutes))
+        cached_plan = TASK_CACHE.get(clean_task, self.user_state.energy_level)
+        if cached_plan:
+            return cached_plan, True
+
+        calibrated_estimate = max(estimate, int(round(estimate * self.user_state.dynamic_multiplier)))
+        step_target = 5 if self.user_state.energy_level <= 4 else 8 if self.user_state.energy_level <= 7 else 10
+        plan_steps = self._plan_template_steps(clean_task, calibrated_estimate, step_target)
+
+        plan = DecompositionPlan(
+            task_name=clean_task,
+            original_estimate_minutes=estimate,
+            calibrated_estimate_minutes=calibrated_estimate,
+            multiplier_applied=round(float(self.user_state.dynamic_multiplier), 2),
+            steps=plan_steps,
+            rabbit_hole_risks=self._rabbit_hole_risks(clean_task),
+            activation_phrase=f"I'm just going to {plan_steps[0].action.lower()}",
+        )
+        TASK_CACHE.store_with_energy(clean_task, plan, self.user_state.energy_level)
+        return plan, False
+
+    def _plan_template_steps(self, task: str, calibrated_estimate: int, chunk_minutes: int) -> List[TaskStep]:
+        steps: List[TaskStep] = []
+        templates = self._task_templates(task)
+        setup_minutes = min(chunk_minutes, max(3, min(5, calibrated_estimate)))
+        wrap_minutes = min(chunk_minutes, 5) if calibrated_estimate > 10 else 0
+        focus_minutes = max(0, calibrated_estimate - setup_minutes - wrap_minutes)
+        focus_chunks = max(1, int((focus_minutes + chunk_minutes - 1) // chunk_minutes)) if focus_minutes else 0
+
+        step_number = 1
+        steps.append(
+            TaskStep(
+                step_number=step_number,
+                action=templates["setup"],
+                duration_minutes=setup_minutes,
+                energy_required="low",
+            )
+        )
+        step_number += 1
+
+        for chunk_index in range(1, focus_chunks + 1):
+            chunk_duration = min(chunk_minutes, max(1, focus_minutes - ((chunk_index - 1) * chunk_minutes)))
+            steps.append(
+                TaskStep(
+                    step_number=step_number,
+                    action=templates["focus"].format(index=chunk_index),
+                    duration_minutes=chunk_duration,
+                    energy_required="medium",
+                )
+            )
+            step_number += 1
+
+            if chunk_index < focus_chunks and chunk_index % 3 == 0:
+                steps.append(
+                    TaskStep(
+                        step_number=step_number,
+                        action="Checkpoint: stand up, stretch, get water, then come back.",
+                        duration_minutes=3,
+                        is_checkpoint=True,
+                        energy_required="low",
+                    )
+                )
+                step_number += 1
+
+        if wrap_minutes:
+            steps.append(
+                TaskStep(
+                    step_number=step_number,
+                    action=templates["wrap"],
+                    duration_minutes=wrap_minutes,
+                    energy_required="low",
+                )
+            )
+
+        return steps
+
+    def _task_templates(self, task: str) -> Dict[str, str]:
+        lowered = task.lower()
+        if any(keyword in lowered for keyword in ("email", "inbox", "reply", "message")):
+            return {
+                "setup": f"Open the inbox or thread for {task}. Star the exact message you are handling first.",
+                "focus": f"Draft and send the next email chunk for {task} (chunk {{index}}).",
+                "wrap": f"Send what is ready for {task}, then archive or flag the next follow-up.",
+            }
+        if any(keyword in lowered for keyword in ("report", "deck", "slides", "presentation", "proposal")):
+            return {
+                "setup": f"Open the working file for {task}. Add a rough title and the first section header.",
+                "focus": f"Complete one draft section for {task} (chunk {{index}}).",
+                "wrap": f"Do a quick review of {task} and leave one note about the next missing section.",
+            }
+        if any(keyword in lowered for keyword in ("code", "bug", "test", "refactor", "deploy")):
+            return {
+                "setup": f"Open the code or test related to {task}. Find the first file you need to touch.",
+                "focus": f"Finish one small coding chunk for {task} (chunk {{index}}).",
+                "wrap": f"Run the quickest sanity check for {task} and leave a note about the next code change.",
+            }
+        if any(keyword in lowered for keyword in ("clean", "laundry", "organize", "tidy")):
+            return {
+                "setup": f"Set a timer and clear one visible zone for {task}.",
+                "focus": f"Finish one small area for {task} (zone {{index}}).",
+                "wrap": f"Put obvious trash away, then stage the next area for {task}.",
+            }
+        return {
+            "setup": f"Open everything you need for {task} and define the first concrete target.",
+            "focus": f"Complete one focused work chunk for {task} (chunk {{index}}).",
+            "wrap": f"Review what changed in {task} and write down the next visible step.",
+        }
+
+    def _rabbit_hole_risks(self, task: str) -> List[str]:
+        lowered = task.lower()
+        risks = [
+            "Research spiral -> stop after one answer and return to the next step.",
+            "Tool or layout tweaking -> keep the first workable version and move on.",
+        ]
+        if any(keyword in lowered for keyword in ("email", "inbox", "message")):
+            risks.append("Inbox pinball -> finish the chosen thread before opening new messages.")
+        if any(keyword in lowered for keyword in ("code", "bug", "test")):
+            risks.append("Refactor drift -> only change what is required for this task.")
+        return risks
+
+    def _plan_description(self, plan: DecompositionPlan) -> str:
+        return (
+            f"Calibrated estimate: {plan.calibrated_estimate_minutes} minutes. "
+            f"Activation phrase: {plan.activation_phrase}"
+        )
+
+    def _sync_current_task_from_status(self, task: Optional[Dict[str, Any]]):
+        if not task:
+            return
+        if task["status"] == "doing":
+            self.user_state.current_task = task["title"]
+            self.user_state.save_to_db()
+            return
+        if self.user_state.current_task == task["title"]:
+            self.user_state.current_task = None
+            self.user_state.save_to_db()
 
 
 RUNTIME = ADHDOSRuntime()

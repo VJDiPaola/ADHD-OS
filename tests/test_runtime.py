@@ -194,6 +194,44 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.get_app_setting("anthropic_api_key"), "anthropic-test-key")
         self.assertEqual(self.db.get_app_setting("model_mode"), "quality")
 
+    async def test_create_task_item_sets_current_task_when_doing(self):
+        result = await self.runtime.create_task_item(
+            title="Quarterly report",
+            status="doing",
+            session_id="session-1",
+        )
+
+        self.assertEqual(result["task"]["status"], "doing")
+        self.assertEqual(result["user_state"]["current_task"], "Quarterly report")
+        self.assertEqual(self.db.get_state("current_task"), "Quarterly report")
+
+    async def test_moving_task_out_of_doing_clears_current_task(self):
+        created = await self.runtime.create_task_item(
+            title="Quarterly report",
+            status="doing",
+            session_id="session-1",
+        )
+
+        result = await self.runtime.update_task_item(created["task"]["id"], status="today")
+
+        self.assertEqual(result["task"]["status"], "today")
+        self.assertIsNone(result["user_state"]["current_task"])
+        self.assertIsNone(self.db.get_state("current_task"))
+
+    async def test_decompose_task_to_checklist_creates_task_with_steps(self):
+        result = await self.runtime.decompose_task_to_checklist(
+            task="Draft launch email",
+            estimated_minutes=30,
+            status="today",
+            session_id="session-1",
+        )
+
+        self.assertEqual(result["task"]["title"], "Draft launch email")
+        self.assertEqual(result["task"]["status"], "today")
+        self.assertGreater(len(result["task"]["steps"]), 0)
+        self.assertEqual(result["tasks"][0]["id"], result["task"]["id"])
+        self.assertIn("stats", result)
+
     async def test_startup_restores_machine_state(self):
         now = datetime.now()
         self.db.save_machine_state(

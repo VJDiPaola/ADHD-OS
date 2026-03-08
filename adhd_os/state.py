@@ -107,11 +107,12 @@ class UserState:
         from adhd_os.infrastructure.database import DB
         DB.save_state("base_multiplier", self.base_multiplier)
         DB.save_state("peak_window_hours", list(self.peak_window_hours))
-        if self.current_task:
-            DB.save_state("current_task", self.current_task)
+        DB.save_state("current_task", self.current_task)
         DB.save_state("energy_level", self.energy_level)
-        if self.medication_time:
-            DB.save_state("medication_time", self.medication_time.isoformat())
+        DB.save_state(
+            "medication_time",
+            self.medication_time.isoformat() if self.medication_time else None,
+        )
 
     def get_task_type_multiplier(self, task_type: str) -> Optional[float]:
         """Returns learned multiplier from DB."""

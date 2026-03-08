@@ -21,6 +21,7 @@ class DashboardApiTests(unittest.TestCase):
             "user_state": {"energy_level": 5},
             "body_double": {"state": "idle"},
             "focus_guardrail": {"state": "idle"},
+            "tasks": [],
             "recent_sessions": [],
             "provider_status": {"ready": False},
             "recent_activity": [],
@@ -38,6 +39,7 @@ class DashboardApiTests(unittest.TestCase):
         payload = {
             "session_id": "session-1",
             "messages": [],
+            "tasks": [],
             "user_state": {"energy_level": 5},
             "body_double": {"state": "idle"},
             "focus_guardrail": {"state": "idle"},
@@ -105,10 +107,107 @@ class DashboardApiTests(unittest.TestCase):
         mock_resume.assert_awaited_once_with()
         mock_guardrail.assert_awaited_once_with(minutes=45, reason="School pickup")
 
+    def test_task_endpoints_delegate_to_runtime(self):
+        create_payload = {
+            "task": {"id": 1, "title": "Pay rent", "status": "inbox", "steps": []},
+            "tasks": [{"id": 1, "title": "Pay rent", "status": "inbox", "steps": []}],
+            "stats": {"current_energy": 5, "tasks_completed_today": 0, "current_multiplier": 1.5},
+            "user_state": {"energy_level": 5, "current_task": None},
+        }
+        update_payload = {
+            "task": {"id": 1, "title": "Pay rent", "status": "doing", "steps": []},
+            "tasks": [{"id": 1, "title": "Pay rent", "status": "doing", "steps": []}],
+            "stats": {"current_energy": 5, "tasks_completed_today": 0, "current_multiplier": 1.5},
+            "user_state": {"energy_level": 5, "current_task": "Pay rent"},
+        }
+        step_payload = {
+            "task": {
+                "id": 1,
+                "title": "Pay rent",
+                "status": "doing",
+                "steps": [{"id": 9, "step_number": 1, "text": "Open bank app", "completed": True}],
+            },
+            "tasks": [{
+                "id": 1,
+                "title": "Pay rent",
+                "status": "doing",
+                "steps": [{"id": 9, "step_number": 1, "text": "Open bank app", "completed": True}],
+            }],
+            "stats": {"current_energy": 5, "tasks_completed_today": 0, "current_multiplier": 1.5},
+            "user_state": {"energy_level": 5, "current_task": "Pay rent"},
+        }
+        decompose_payload = {
+            "task": {
+                "id": 2,
+                "title": "Draft launch email",
+                "status": "today",
+                "steps": [{"id": 10, "step_number": 1, "text": "Open email draft", "completed": False}],
+            },
+            "tasks": [{"id": 2, "title": "Draft launch email", "status": "today", "steps": []}],
+            "stats": {"current_energy": 5, "tasks_completed_today": 0, "current_multiplier": 1.5},
+            "user_state": {"energy_level": 5, "current_task": None},
+            "plan": {"task_name": "Draft launch email"},
+            "used_cache": False,
+        }
+
+        with patch.object(backend.RUNTIME, "startup", AsyncMock()), \
+             patch.object(backend.RUNTIME, "create_task_item", AsyncMock(return_value=create_payload)) as mock_create, \
+             patch.object(backend.RUNTIME, "update_task_item", AsyncMock(return_value=update_payload)) as mock_update, \
+             patch.object(backend.RUNTIME, "update_task_step_item", AsyncMock(return_value=step_payload)) as mock_step, \
+             patch.object(backend.RUNTIME, "decompose_task_to_checklist", AsyncMock(return_value=decompose_payload)) as mock_decompose:
+            with TestClient(backend.app) as client:
+                create_response = client.post(
+                    "/api/tasks",
+                    json={"title": "Pay rent", "status": "inbox", "session_id": "session-1"},
+                )
+                update_response = client.patch(
+                    "/api/tasks/1",
+                    json={"status": "doing"},
+                )
+                step_response = client.patch(
+                    "/api/tasks/1/steps/9",
+                    json={"completed": True},
+                )
+                decompose_response = client.post(
+                    "/api/tasks/decompose",
+                    json={
+                        "task": "Draft launch email",
+                        "estimated_minutes": 45,
+                        "status": "today",
+                        "session_id": "session-1",
+                    },
+                )
+
+        self.assertEqual(create_response.status_code, 200)
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(step_response.status_code, 200)
+        self.assertEqual(decompose_response.status_code, 200)
+        mock_create.assert_awaited_once_with(
+            title="Pay rent",
+            description=None,
+            status="inbox",
+            session_id="session-1",
+            estimated_minutes=None,
+        )
+        mock_update.assert_awaited_once_with(
+            1,
+            title=None,
+            description=None,
+            status="doing",
+        )
+        mock_step.assert_awaited_once_with(1, 9, completed=True)
+        mock_decompose.assert_awaited_once_with(
+            task="Draft launch email",
+            estimated_minutes=45,
+            status="today",
+            session_id="session-1",
+        )
+
     def test_shutdown_endpoint_returns_runtime_messages(self):
         payload = {
             "session_id": "session-1",
             "messages": [{"id": 7, "role": "system", "kind": "system", "text": "Session saved."}],
+            "tasks": [],
             "user_state": {"energy_level": 4},
             "body_double": {"state": "idle"},
             "focus_guardrail": {"state": "idle"},

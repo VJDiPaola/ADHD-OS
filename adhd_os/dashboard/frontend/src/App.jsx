@@ -9,7 +9,9 @@ import {
 import './App.css'
 import {
   clearFocusGuardrail,
+  createTask,
   createLiveStream,
+  decomposeTask,
   endBodyDouble,
   getBootstrap,
   getHistory,
@@ -21,6 +23,8 @@ import {
   setFocusGuardrail,
   shutdownSession,
   startBodyDouble,
+  updateTask,
+  updateTaskStep,
 } from './api'
 
 const QUICK_ACTIONS = [
@@ -31,6 +35,13 @@ const QUICK_ACTIONS = [
   { id: 'support', label: 'Emotional Support' },
   { id: 'bodyDouble', label: 'Body Double' },
   { id: 'guardrail', label: 'Focus Guardrail' },
+]
+
+const TASK_COLUMNS = [
+  { id: 'inbox', label: 'Inbox', helper: 'Captured, not scheduled yet.' },
+  { id: 'today', label: 'Today', helper: 'Ready to happen today.' },
+  { id: 'doing', label: 'Doing', helper: 'The single thing in motion.' },
+  { id: 'done', label: 'Done', helper: 'Closed loops and finished work.' },
 ]
 
 const LIVE_EVENT_NAMES = ['checkin_due', 'focus_warning', 'task_completed', 'energy_updated', 'system_notice']
@@ -141,6 +152,10 @@ function buildDecomposePrompt(form) {
   return `Break down this task into microscopic steps.\nTask: ${form.task.trim()}\nMy estimate: ${form.estimate} minutes.`
 }
 
+function countCompletedSteps(task) {
+  return (task.steps || []).filter((step) => step.completed).length
+}
+
 function buildTimeCheckPrompt(form) {
   return `How long will this task realistically take?\nTask: ${form.task.trim()}\nMy estimate: ${form.estimate} minutes.`
 }
@@ -168,6 +183,7 @@ function App() {
   const [userState, setUserState] = useState(null)
   const [bodyDouble, setBodyDouble] = useState({ state: 'idle' })
   const [focusGuardrail, setFocusGuardrailState] = useState({ state: 'idle' })
+  const [tasks, setTasks] = useState([])
   const [sessions, setSessions] = useState([])
   const [history, setHistory] = useState([])
   const [activity, setActivity] = useState([])
@@ -188,11 +204,22 @@ function App() {
     clearGoogleApiKey: false,
     clearAnthropicApiKey: false,
   })
+  const [taskDraft, setTaskDraft] = useState({
+    title: '',
+    status: 'inbox',
+  })
   const [toasts, setToasts] = useState([])
   const [notificationPermission, setNotificationPermission] = useState(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
   const transcriptEndRef = useRef(null)
+
+  function syncCurrentTaskEditor(currentTask) {
+    setStateEditor((current) => ({
+      ...current,
+      currentTask: currentTask || '',
+    }))
+  }
 
   function syncDashboard(bootstrap, historyItems) {
     setActiveSession(bootstrap.active_session)
@@ -201,6 +228,7 @@ function App() {
     setUserState(bootstrap.user_state)
     setBodyDouble(bootstrap.body_double || { state: 'idle' })
     setFocusGuardrailState(bootstrap.focus_guardrail || { state: 'idle' })
+    setTasks(bootstrap.tasks || [])
     setSessions(bootstrap.recent_sessions || [])
     setProviderStatus(bootstrap.provider_status)
     setActivity(bootstrap.recent_activity || [])
@@ -313,13 +341,21 @@ function App() {
       return [...current, ...incoming]
     })
     setUserState(response.user_state)
+    syncCurrentTaskEditor(response.user_state?.current_task)
     setBodyDouble(response.body_double)
     setFocusGuardrailState(response.focus_guardrail)
-    setStats((current) => current ? {
-      ...current,
-      current_energy: response.user_state?.energy_level ?? current.current_energy,
-      current_multiplier: response.user_state?.dynamic_multiplier ?? current.current_multiplier,
-    } : current)
+    if (response.tasks) {
+      setTasks(response.tasks)
+    }
+    if (response.stats) {
+      setStats(response.stats)
+    } else {
+      setStats((current) => current ? {
+        ...current,
+        current_energy: response.user_state?.energy_level ?? current.current_energy,
+        current_multiplier: response.user_state?.dynamic_multiplier ?? current.current_multiplier,
+      } : current)
+    }
     setSessions((current) => {
       const existing = current.filter((session) => session.id !== response.session_id)
       const promoted = current.find((session) => session.id === response.session_id) || {
@@ -329,6 +365,30 @@ function App() {
       }
       return [{ ...promoted, last_active: new Date().toISOString() }, ...existing]
     })
+  }
+
+  function mergeTaskResponse(response) {
+    if (response.tasks) {
+      setTasks(response.tasks)
+    }
+    if (response.user_state) {
+      setUserState(response.user_state)
+      syncCurrentTaskEditor(response.user_state.current_task)
+    }
+    if (response.stats) {
+      setStats(response.stats)
+    }
+    if (response.task?.status === 'done') {
+      setHistory((current) => [
+        {
+          id: `task-${response.task.id}`,
+          task_type: response.task.title,
+          completed_at: response.task.completed_at || new Date().toISOString(),
+          duration_minutes: response.task.estimated_minutes || 0,
+        },
+        ...current.filter((item) => item.id !== `task-${response.task.id}`),
+      ])
+    }
   }
 
   async function sendPrompt(text) {
@@ -522,7 +582,18 @@ function App() {
         })
         await sendPrompt(buildMorningPrompt(form))
       } else if (selectedAction === 'decompose') {
-        await sendPrompt(buildDecomposePrompt(form))
+        const response = await decomposeTask({
+          task: form.task,
+          estimated_minutes: Number(form.estimate),
+          status: 'today',
+          session_id: activeSession?.id,
+        })
+        mergeTaskResponse(response)
+        setForms((current) => ({
+          ...current,
+          decompose: { ...EMPTY_FORMS.decompose },
+        }))
+        addToast('task ready', `Checklist created for ${response.task?.title || form.task}.`)
       } else if (selectedAction === 'timeCheck') {
         await sendPrompt(buildTimeCheckPrompt(form))
       } else if (selectedAction === 'planReview') {
@@ -549,6 +620,57 @@ function App() {
       setError(null)
     } catch (actionError) {
       setError(actionError.message || 'Unable to complete that quick action.')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function handleTaskCreate(event) {
+    event.preventDefault()
+    if (!taskDraft.title.trim() || working) {
+      return
+    }
+
+    setWorking(true)
+    try {
+      const response = await createTask({
+        title: taskDraft.title.trim(),
+        status: taskDraft.status,
+        session_id: activeSession?.id,
+      })
+      mergeTaskResponse(response)
+      setTaskDraft({ title: '', status: 'inbox' })
+      addToast('task captured', `Added "${response.task?.title || taskDraft.title.trim()}" to ${taskDraft.status}.`)
+      setError(null)
+    } catch (taskError) {
+      setError(taskError.message || 'Unable to capture that task.')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function handleTaskStatusChange(taskId, status) {
+    setWorking(true)
+    try {
+      const response = await updateTask(taskId, { status })
+      mergeTaskResponse(response)
+      addToast('task updated', `Moved "${response.task?.title || 'task'}" to ${status}.`)
+      setError(null)
+    } catch (taskError) {
+      setError(taskError.message || 'Unable to move that task.')
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function handleTaskStepToggle(taskId, stepId, completed) {
+    setWorking(true)
+    try {
+      const response = await updateTaskStep(taskId, stepId, { completed })
+      mergeTaskResponse(response)
+      setError(null)
+    } catch (taskError) {
+      setError(taskError.message || 'Unable to update that checklist step.')
     } finally {
       setWorking(false)
     }
@@ -836,6 +958,11 @@ function App() {
     )
   }
 
+  const taskColumns = TASK_COLUMNS.map((column) => ({
+    ...column,
+    tasks: tasks.filter((task) => task.status === column.id),
+  }))
+
   if (loading) {
     return (
       <div className="shell loading-shell">
@@ -883,22 +1010,36 @@ function App() {
         <aside className="left-column">
           <section className="glass-card panel-card">
             <div className="panel-heading">
-              <h2>Recent Sessions</h2>
-              <span>{sessions.length}</span>
+              <h2>Capture Task</h2>
+              <span>Inbox first</span>
             </div>
-            <div className="session-list">
-              {sessions.map((session) => (
-                <button
-                  type="button"
-                  key={session.id}
-                  className={`session-tile ${activeSession?.id === session.id ? 'active' : ''}`}
-                  onClick={() => handleSessionOpen(session.id)}
+            <form className="task-capture-form" onSubmit={handleTaskCreate}>
+              <label>
+                Task to Capture
+                <textarea
+                  rows="3"
+                  placeholder="Drop a task here before it disappears."
+                  value={taskDraft.title}
+                  onChange={(event) => setTaskDraft((current) => ({ ...current, title: event.target.value }))}
+                />
+              </label>
+              <label>
+                Start In
+                <select
+                  value={taskDraft.status}
+                  onChange={(event) => setTaskDraft((current) => ({ ...current, status: event.target.value }))}
                 >
-                  <strong>{session.id.slice(0, 8)}</strong>
-                  <span>{formatDateTime(session.last_active)}</span>
-                </button>
-              ))}
-            </div>
+                  {TASK_COLUMNS.filter((column) => column.id !== 'done').map((column) => (
+                    <option key={column.id} value={column.id}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="secondary-button" type="submit" disabled={working || !taskDraft.title.trim()}>
+                Capture Task
+              </button>
+            </form>
           </section>
 
           <section className="glass-card panel-card">
@@ -925,72 +1066,188 @@ function App() {
                   ? 'Start Session'
                   : selectedAction === 'guardrail'
                     ? 'Set Guardrail'
-                    : 'Send Guided Prompt'}
+                    : selectedAction === 'decompose'
+                      ? 'Create Checklist'
+                      : 'Send Guided Prompt'}
               </button>
             </form>
           </section>
+
+          <section className="glass-card panel-card">
+            <div className="panel-heading">
+              <h2>Recent Sessions</h2>
+              <span>{sessions.length}</span>
+            </div>
+            <div className="session-list">
+              {sessions.map((session) => (
+                <button
+                  type="button"
+                  key={session.id}
+                  className={`session-tile ${activeSession?.id === session.id ? 'active' : ''}`}
+                  onClick={() => handleSessionOpen(session.id)}
+                >
+                  <strong>{session.id.slice(0, 8)}</strong>
+                  <span>{formatDateTime(session.last_active)}</span>
+                </button>
+              ))}
+            </div>
+          </section>
         </aside>
 
-        <main className="center-column glass-card transcript-card">
-          <div className="panel-heading transcript-heading">
-            <div>
-              <h2>Conversation</h2>
-              <p className="subtle">Chat directly or use structured workflows on the left.</p>
+        <main className="center-column">
+          <section className="glass-card panel-card task-board-card">
+            <div className="panel-heading">
+              <div>
+                <h2>Task Board</h2>
+                <p className="subtle">Capture it, schedule it, work it, and close it without leaving the page.</p>
+              </div>
+              <span>{tasks.length}</span>
             </div>
-            <div className="stats-strip">
-              <div>
-                <strong>{stats?.current_energy ?? 0}/10</strong>
-                <span>capacity</span>
-              </div>
-              <div>
-                <strong>{stats?.current_multiplier ?? 1}x</strong>
-                <span>multiplier</span>
-              </div>
-              <div>
-                <strong>{stats?.tasks_completed_today ?? 0}</strong>
-                <span>done today</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="transcript" aria-live="polite">
-            {messages.length === 0 ? (
-              <div className="empty-state">
-                <h3>No transcript yet</h3>
-                <p>Start with a freeform message or one of the guided quick actions.</p>
-              </div>
-            ) : (
-              messages.map((message) => (
-                <article
-                  key={message.id}
-                  className={`message-bubble ${message.role} ${message.kind}`}
-                >
-                  <div className="message-meta">
-                    <span>{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'ADHD-OS' : 'System'}</span>
-                    <span>{formatDateTime(message.created_at)}</span>
+            <div className="task-columns">
+              {taskColumns.map((column) => (
+                <div key={column.id} className="task-column">
+                  <div className="task-column-heading">
+                    <strong>{column.label}</strong>
+                    <span>{column.tasks.length}</span>
                   </div>
-                  <p>{message.text}</p>
-                </article>
-              ))
-            )}
-            <div ref={transcriptEndRef} />
-          </div>
-
-          <form className="composer" onSubmit={handleComposerSubmit}>
-            <textarea
-              rows="4"
-              placeholder="Talk to ADHD-OS like a coworker. Example: I'm stuck on the QBR report."
-              value={composerText}
-              onChange={(event) => setComposerText(event.target.value)}
-              disabled={working}
-            />
-            <div className="composer-actions">
-              <span className="subtle">Freeform chat routes through the orchestrator and persists to this session.</span>
-              <button className="primary-button" type="submit" disabled={working || !composerText.trim()}>
-                Send Message
-              </button>
+                  <p className="subtle">{column.helper}</p>
+                  <div className="task-list">
+                    {column.tasks.length === 0 ? (
+                      <p className="subtle task-empty">Nothing here yet.</p>
+                    ) : (
+                      column.tasks.map((task) => {
+                        const completedSteps = countCompletedSteps(task)
+                        return (
+                          <article
+                            key={task.id}
+                            className={`task-card ${task.status === 'doing' ? 'active' : ''} ${task.status === 'done' ? 'completed' : ''}`}
+                          >
+                            <div className="task-card-header">
+                              <div>
+                                <h3>{task.title}</h3>
+                                {task.estimated_minutes ? <span>{task.estimated_minutes} min calibrated</span> : null}
+                              </div>
+                              <select
+                                aria-label={`Move ${task.title} to`}
+                                value={task.status}
+                                onChange={(event) => handleTaskStatusChange(task.id, event.target.value)}
+                                disabled={working}
+                              >
+                                {TASK_COLUMNS.map((statusColumn) => (
+                                  <option key={statusColumn.id} value={statusColumn.id}>
+                                    {statusColumn.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            {task.description ? (
+                              <p className="task-description">{task.description}</p>
+                            ) : null}
+                            {task.activation_phrase ? (
+                              <p className="task-activation">Start with: {task.activation_phrase}</p>
+                            ) : null}
+                            {task.steps?.length ? (
+                              <>
+                                <div className="task-step-summary">
+                                  <strong>{completedSteps}/{task.steps.length}</strong>
+                                  <span>steps complete</span>
+                                </div>
+                                <div className="task-steps">
+                                  {task.steps.map((step) => (
+                                    <label
+                                      key={step.id}
+                                      className={`task-step-row ${step.completed ? 'completed' : ''}`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Toggle ${task.title} step ${step.step_number}`}
+                                        checked={step.completed}
+                                        onChange={(event) => handleTaskStepToggle(task.id, step.id, event.target.checked)}
+                                        disabled={working}
+                                      />
+                                      <span>{step.step_number}. {step.text}</span>
+                                      <small>
+                                        {step.duration_minutes ? `${step.duration_minutes}m` : ''}
+                                        {step.duration_minutes && step.is_checkpoint ? ' | ' : ''}
+                                        {step.is_checkpoint ? 'checkpoint' : ''}
+                                      </small>
+                                    </label>
+                                  ))}
+                                </div>
+                              </>
+                            ) : null}
+                            <time className="task-updated">Updated {formatDateTime(task.updated_at)}</time>
+                          </article>
+                        )
+                      })
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          </form>
+          </section>
+
+          <section className="glass-card transcript-card">
+            <div className="panel-heading transcript-heading">
+              <div>
+                <h2>Conversation</h2>
+                <p className="subtle">Chat directly or use structured workflows on the left.</p>
+              </div>
+              <div className="stats-strip">
+                <div>
+                  <strong>{stats?.current_energy ?? 0}/10</strong>
+                  <span>capacity</span>
+                </div>
+                <div>
+                  <strong>{stats?.current_multiplier ?? 1}x</strong>
+                  <span>multiplier</span>
+                </div>
+                <div>
+                  <strong>{stats?.tasks_completed_today ?? 0}</strong>
+                  <span>done today</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="transcript" aria-live="polite">
+              {messages.length === 0 ? (
+                <div className="empty-state">
+                  <h3>No transcript yet</h3>
+                  <p>Start with a freeform message or one of the guided quick actions.</p>
+                </div>
+              ) : (
+                messages.map((message) => (
+                  <article
+                    key={message.id}
+                    className={`message-bubble ${message.role} ${message.kind}`}
+                  >
+                    <div className="message-meta">
+                      <span>{message.role === 'user' ? 'You' : message.role === 'assistant' ? 'ADHD-OS' : 'System'}</span>
+                      <span>{formatDateTime(message.created_at)}</span>
+                    </div>
+                    <p>{message.text}</p>
+                  </article>
+                ))
+              )}
+              <div ref={transcriptEndRef} />
+            </div>
+
+            <form className="composer" onSubmit={handleComposerSubmit}>
+              <textarea
+                rows="4"
+                placeholder="Talk to ADHD-OS like a coworker. Example: I'm stuck on the QBR report."
+                value={composerText}
+                onChange={(event) => setComposerText(event.target.value)}
+                disabled={working}
+              />
+              <div className="composer-actions">
+                <span className="subtle">Freeform chat routes through the orchestrator and persists to this session.</span>
+                <button className="primary-button" type="submit" disabled={working || !composerText.trim()}>
+                  Send Message
+                </button>
+              </div>
+            </form>
+          </section>
         </main>
 
         <aside className="right-column">

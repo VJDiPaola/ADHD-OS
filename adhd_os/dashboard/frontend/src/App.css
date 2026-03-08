@@ -64,6 +64,9 @@
 }
 
 .center-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
   min-height: 70vh;
 }
 
@@ -146,14 +149,16 @@
 
 .quick-form,
 .state-form,
-.composer {
+.composer,
+.task-capture-form {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
 }
 
 .quick-form label,
-.state-form label {
+.state-form label,
+.task-capture-form label {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -168,6 +173,137 @@
 
 .transcript-card {
   gap: 1.25rem;
+}
+
+.task-board-card {
+  gap: 1.25rem;
+}
+
+.task-columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.task-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 1.15rem;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.task-column-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.task-column-heading span,
+.task-card-header span,
+.task-step-summary span,
+.task-updated,
+.task-step-row small {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid transparent;
+}
+
+.task-card.active {
+  border-color: rgba(14, 165, 233, 0.38);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.task-card.completed {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.09);
+}
+
+.task-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.task-card-header h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.task-card-header select {
+  min-width: 6.75rem;
+}
+
+.task-description,
+.task-activation {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.task-activation {
+  color: var(--text-secondary);
+}
+
+.task-step-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.1rem;
+}
+
+.task-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.task-step-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem 0.75rem;
+  align-items: flex-start;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.task-step-row input {
+  margin-top: 0.2rem;
+}
+
+.task-step-row span,
+.task-step-row small {
+  grid-column: 2;
+}
+
+.task-step-row.completed span {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.task-empty {
+  margin: 0;
+  padding: 0.85rem 0.1rem 0.25rem;
 }
 
 .transcript-heading {
@@ -331,6 +467,10 @@
     grid-template-columns: 1fr;
   }
 
+  .task-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .left-column,
   .right-column,
   .center-column {
@@ -353,6 +493,10 @@
   }
 
   .action-list {
+    grid-template-columns: 1fr;
+  }
+
+  .task-columns {
     grid-template-columns: 1fr;
   }
 

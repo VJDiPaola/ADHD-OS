@@ -70,6 +70,31 @@ class FocusGuardrailRequest(BaseModel):
     reason: str = Field(..., min_length=1)
 
 
+class TaskCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    description: Optional[str] = None
+    status: str = Field(default="inbox")
+    estimated_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    session_id: Optional[str] = None
+
+
+class TaskUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
+
+class TaskStepUpdateRequest(BaseModel):
+    completed: bool
+
+
+class TaskDecomposeRequest(BaseModel):
+    task: str = Field(..., min_length=1)
+    estimated_minutes: int = Field(..., ge=1, le=480)
+    status: str = Field(default="today")
+    session_id: Optional[str] = None
+
+
 class ProviderSettingsPatchRequest(BaseModel):
     google_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
@@ -206,6 +231,64 @@ async def get_stats():
 async def get_history(limit: int = Query(default=50, ge=1, le=200)):
     await RUNTIME.startup()
     return RUNTIME.get_task_history(limit=limit)
+
+
+@app.get("/api/tasks")
+async def get_tasks():
+    await RUNTIME.startup()
+    return RUNTIME.get_task_board()
+
+
+@app.post("/api/tasks")
+async def post_task(request: TaskCreateRequest):
+    try:
+        return await RUNTIME.create_task_item(
+            title=request.title,
+            description=request.description,
+            status=request.status,
+            session_id=request.session_id,
+            estimated_minutes=request.estimated_minutes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/tasks/{task_id}")
+async def patch_task(task_id: int, request: TaskUpdateRequest):
+    try:
+        return await RUNTIME.update_task_item(
+            task_id,
+            title=request.title,
+            description=request.description,
+            status=request.status,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail.startswith("Unknown task") else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@app.patch("/api/tasks/{task_id}/steps/{step_id}")
+async def patch_task_step(task_id: int, step_id: int, request: TaskStepUpdateRequest):
+    try:
+        return await RUNTIME.update_task_step_item(task_id, step_id, completed=request.completed)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if detail.startswith("Unknown task step") else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@app.post("/api/tasks/decompose")
+async def post_task_decomposition(request: TaskDecomposeRequest):
+    try:
+        return await RUNTIME.decompose_task_to_checklist(
+            task=request.task,
+            estimated_minutes=request.estimated_minutes,
+            status=request.status,
+            session_id=request.session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/sessions")

@@ -36,8 +36,40 @@ export function getHistory() {
   return requestJson('/history')
 }
 
+export function getTasks() {
+  return requestJson('/tasks')
+}
+
 export function sendChatTurn(payload) {
   return requestJson('/chat/turn', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function createTask(payload) {
+  return requestJson('/tasks', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateTask(taskId, payload) {
+  return requestJson(`/tasks/${encodeURIComponent(taskId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateTaskStep(taskId, stepId, payload) {
+  return requestJson(`/tasks/${encodeURIComponent(taskId)}/steps/${encodeURIComponent(stepId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function decomposeTask(payload) {
+  return requestJson('/tasks/decompose', {
     method: 'POST',
     body: JSON.stringify(payload),
   })

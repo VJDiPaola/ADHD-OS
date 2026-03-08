@@ -131,6 +131,38 @@ class DatabaseManager:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT,
+                    status TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    session_id TEXT,
+                    estimated_minutes INTEGER,
+                    activation_phrase TEXT,
+                    created_at TIMESTAMP NOT NULL,
+                    updated_at TIMESTAMP NOT NULL,
+                    completed_at TIMESTAMP,
+                    FOREIGN KEY(session_id) REFERENCES sessions(id)
+                )
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS task_steps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL,
+                    step_number INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    duration_minutes INTEGER,
+                    is_checkpoint BOOLEAN NOT NULL DEFAULT 0,
+                    completed BOOLEAN NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL,
+                    completed_at TIMESTAMP,
+                    FOREIGN KEY(task_id) REFERENCES tasks(id)
+                )
+            """)
+
             # Indexes for performance
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_sessions_last_updated
@@ -151,6 +183,14 @@ class DatabaseManager:
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_machine_state_updated
                 ON machine_state (updated_at)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tasks_status_updated
+                ON tasks (status, updated_at DESC)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_task_steps_task
+                ON task_steps (task_id, step_number)
             """)
 
             conn.commit()
@@ -368,7 +408,20 @@ class DatabaseManager:
     def get_tasks_completed_today(self) -> int:
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT COUNT(*) FROM task_history WHERE date(timestamp) = date('now', 'localtime')"
+                """
+                SELECT
+                    (
+                        SELECT COUNT(*)
+                        FROM task_history
+                        WHERE date(timestamp) = date('now', 'localtime')
+                    ) +
+                    (
+                        SELECT COUNT(*)
+                        FROM tasks
+                        WHERE completed_at IS NOT NULL
+                          AND date(completed_at) = date('now', 'localtime')
+                    )
+                """
             )
             row = cursor.fetchone()
             return int(row[0] if row else 0)
@@ -377,9 +430,24 @@ class DatabaseManager:
         with self._get_conn() as conn:
             cursor = conn.execute(
                 """
-                SELECT id, task_type, timestamp, actual_minutes
-                FROM task_history
-                ORDER BY timestamp DESC
+                SELECT history_id, task_type, completed_at, duration_minutes
+                FROM (
+                    SELECT
+                        'history-' || id AS history_id,
+                        task_type,
+                        timestamp AS completed_at,
+                        actual_minutes AS duration_minutes
+                    FROM task_history
+                    UNION ALL
+                    SELECT
+                        'task-' || id AS history_id,
+                        title AS task_type,
+                        completed_at,
+                        estimated_minutes AS duration_minutes
+                    FROM tasks
+                    WHERE completed_at IS NOT NULL
+                )
+                ORDER BY completed_at DESC
                 LIMIT ?
                 """,
                 (limit,),
@@ -562,6 +630,271 @@ class DatabaseManager:
     def clear_machine_state(self, name: str):
         with self._get_conn() as conn:
             conn.execute("DELETE FROM machine_state WHERE name = ?", (name,))
+
+    # --- Task Board Methods ---
+
+    def create_task(
+        self,
+        *,
+        title: str,
+        description: Optional[str] = None,
+        status: str = "inbox",
+        source: str = "manual",
+        session_id: Optional[str] = None,
+        estimated_minutes: Optional[int] = None,
+        activation_phrase: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        now = datetime.now().isoformat()
+        clean_title = (title or "").strip()
+        if not clean_title:
+            raise ValueError("Task title cannot be empty.")
+
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO tasks (
+                    title, description, status, source, session_id,
+                    estimated_minutes, activation_phrase, created_at, updated_at, completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_title,
+                    (description or "").strip() or None,
+                    status,
+                    source,
+                    session_id,
+                    estimated_minutes,
+                    activation_phrase,
+                    now,
+                    now,
+                    now if status == "done" else None,
+                ),
+            )
+            task_id = cursor.lastrowid
+
+        return self.get_task(task_id)
+
+    def get_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, title, description, status, source, session_id,
+                       estimated_minutes, activation_phrase, created_at, updated_at, completed_at
+                FROM tasks
+                WHERE id = ?
+                """,
+                (task_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            task = self._serialize_task_row(row)
+            task["steps"] = self.get_task_steps(task_id)
+            return task
+
+    def get_tasks(self, statuses: Optional[List[str]] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        params: List[Any] = []
+        query = """
+            SELECT id, title, description, status, source, session_id,
+                   estimated_minutes, activation_phrase, created_at, updated_at, completed_at
+            FROM tasks
+        """
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            query += f" WHERE status IN ({placeholders})"
+            params.extend(statuses)
+        query += " ORDER BY CASE status WHEN 'doing' THEN 0 WHEN 'today' THEN 1 WHEN 'inbox' THEN 2 WHEN 'done' THEN 3 ELSE 4 END, updated_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_conn() as conn:
+            cursor = conn.execute(query, tuple(params))
+            tasks = [self._serialize_task_row(row) for row in cursor.fetchall()]
+
+        steps_by_task = self.get_task_steps_by_task_ids([task["id"] for task in tasks])
+        for task in tasks:
+            task["steps"] = steps_by_task.get(task["id"], [])
+        return tasks
+
+    def update_task(
+        self,
+        task_id: int,
+        *,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        status: Optional[str] = None,
+        estimated_minutes: Optional[int] = None,
+        activation_phrase: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        existing = self.get_task(task_id)
+        if not existing:
+            return None
+
+        next_status = status or existing["status"]
+        completed_at = existing["completed_at"]
+        if status == "done" and not completed_at:
+            completed_at = datetime.now().isoformat()
+        elif status and status != "done":
+            completed_at = None
+
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE tasks
+                SET title = ?, description = ?, status = ?, estimated_minutes = ?,
+                    activation_phrase = ?, updated_at = ?, completed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    (title.strip() if title is not None else existing["title"]),
+                    (description.strip() if description is not None else existing["description"]) or None,
+                    next_status,
+                    estimated_minutes if estimated_minutes is not None else existing["estimated_minutes"],
+                    activation_phrase if activation_phrase is not None else existing["activation_phrase"],
+                    datetime.now().isoformat(),
+                    completed_at,
+                    task_id,
+                ),
+            )
+
+        return self.get_task(task_id)
+
+    def create_task_steps(self, task_id: int, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        now = datetime.now().isoformat()
+        with self._get_conn() as conn:
+            for index, step in enumerate(steps, start=1):
+                text = (step.get("text") or step.get("action") or "").strip()
+                if not text:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO task_steps (
+                        task_id, step_number, text, duration_minutes, is_checkpoint,
+                        completed, created_at, completed_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        task_id,
+                        int(step.get("step_number") or index),
+                        text,
+                        step.get("duration_minutes"),
+                        int(bool(step.get("is_checkpoint"))),
+                        int(bool(step.get("completed"))),
+                        now,
+                        now if step.get("completed") else None,
+                    ),
+                )
+            conn.execute(
+                "UPDATE tasks SET updated_at = ? WHERE id = ?",
+                (now, task_id),
+            )
+
+        return self.get_task_steps(task_id)
+
+    def replace_task_steps(self, task_id: int, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            conn.execute("DELETE FROM task_steps WHERE task_id = ?", (task_id,))
+        return self.create_task_steps(task_id, steps)
+
+    def get_task_steps(self, task_id: int) -> List[Dict[str, Any]]:
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT id, task_id, step_number, text, duration_minutes,
+                       is_checkpoint, completed, created_at, completed_at
+                FROM task_steps
+                WHERE task_id = ?
+                ORDER BY step_number ASC, id ASC
+                """,
+                (task_id,),
+            )
+            return [self._serialize_task_step_row(row) for row in cursor.fetchall()]
+
+    def get_task_steps_by_task_ids(self, task_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+        if not task_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in task_ids)
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                f"""
+                SELECT id, task_id, step_number, text, duration_minutes,
+                       is_checkpoint, completed, created_at, completed_at
+                FROM task_steps
+                WHERE task_id IN ({placeholders})
+                ORDER BY task_id ASC, step_number ASC, id ASC
+                """,
+                tuple(task_ids),
+            )
+            grouped: Dict[int, List[Dict[str, Any]]] = {task_id: [] for task_id in task_ids}
+            for row in cursor.fetchall():
+                step = self._serialize_task_step_row(row)
+                grouped.setdefault(step["task_id"], []).append(step)
+            return grouped
+
+    def update_task_step(self, task_id: int, step_id: int, *, completed: bool) -> Optional[Dict[str, Any]]:
+        now = datetime.now().isoformat()
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE task_steps
+                SET completed = ?, completed_at = ?
+                WHERE id = ? AND task_id = ?
+                """,
+                (
+                    int(bool(completed)),
+                    now if completed else None,
+                    step_id,
+                    task_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                return None
+            conn.execute(
+                "UPDATE tasks SET updated_at = ? WHERE id = ?",
+                (now, task_id),
+            )
+
+        task = self.get_task(task_id)
+        if not task:
+            return None
+
+        actionable_steps = [step for step in task["steps"] if not step["is_checkpoint"]]
+        if actionable_steps and all(step["completed"] for step in actionable_steps):
+            task = self.update_task(task_id, status="done")
+
+        return task
+
+    @staticmethod
+    def _serialize_task_row(row) -> Dict[str, Any]:
+        return {
+            "id": row[0],
+            "title": row[1],
+            "description": row[2],
+            "status": row[3],
+            "source": row[4],
+            "session_id": row[5],
+            "estimated_minutes": row[6],
+            "activation_phrase": row[7],
+            "created_at": row[8],
+            "updated_at": row[9],
+            "completed_at": row[10],
+        }
+
+    @staticmethod
+    def _serialize_task_step_row(row) -> Dict[str, Any]:
+        return {
+            "id": row[0],
+            "task_id": row[1],
+            "step_number": row[2],
+            "text": row[3],
+            "duration_minutes": row[4],
+            "is_checkpoint": bool(row[5]),
+            "completed": bool(row[6]),
+            "created_at": row[7],
+            "completed_at": row[8],
+        }
 
 # Global DB instance
 DB = DatabaseManager()
