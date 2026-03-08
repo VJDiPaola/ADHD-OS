@@ -432,10 +432,26 @@ class TestMultiplierCeiling(unittest.TestCase):
 class TestInputSanitization(unittest.TestCase):
     """Tests that tool functions clamp inputs correctly."""
 
+    def _capture_background_task(self):
+        scheduled = []
+
+        def _capture(coro):
+            scheduled.append(coro)
+
+        return scheduled, _capture
+
     def test_log_task_completion_clamps(self):
-        from adhd_os.tools.common import log_task_completion
-        # Negative / zero values should be clamped to 1
-        result = log_task_completion.func("test", -5, 0)
+        from adhd_os.tools import common
+
+        scheduled, capture = self._capture_background_task()
+        with patch.object(common, "_fire_and_forget", side_effect=capture), \
+             patch.object(common.USER_STATE, "log_task_completion") as mock_log, \
+             patch.object(common.EVENT_BUS, "publish", AsyncMock()) as mock_publish:
+            result = common.log_task_completion.func("test", -5, 0)
+            asyncio.run(scheduled[0])
+
+        mock_log.assert_called_once_with("test", 1, 1)
+        mock_publish.assert_awaited_once()
         self.assertTrue(result["logged"])
         self.assertGreater(result["ratio"], 0)
 
@@ -445,19 +461,41 @@ class TestInputSanitization(unittest.TestCase):
         self.assertEqual(result["original_estimate"], 1)
 
     def test_schedule_checkin_clamps(self):
-        from adhd_os.tools.common import schedule_checkin
-        # 0 minutes should clamp to 1
-        result = schedule_checkin.func(0, "test")
+        from adhd_os.tools import common
+
+        scheduled, capture = self._capture_background_task()
+        with patch.object(common, "_fire_and_forget", side_effect=capture), \
+             patch.object(common.asyncio, "sleep", AsyncMock()) as mock_sleep, \
+             patch.object(common.EVENT_BUS, "publish", AsyncMock()) as mock_publish:
+            result = common.schedule_checkin.func(0, "test")
+            asyncio.run(scheduled[0])
+
+        mock_sleep.assert_awaited_once_with(60)
+        mock_publish.assert_awaited_once()
         self.assertTrue(result["scheduled"])
 
     def test_set_hyperfocus_guardrail_clamps(self):
-        from adhd_os.tools.common import set_hyperfocus_guardrail
-        result = set_hyperfocus_guardrail.func(0, "test")
+        from adhd_os.tools import common
+
+        scheduled, capture = self._capture_background_task()
+        with patch.object(common, "_fire_and_forget", side_effect=capture), \
+             patch.object(common.FOCUS_TIMER, "set_hard_stop", AsyncMock()) as mock_set:
+            result = common.set_hyperfocus_guardrail.func(0, "test")
+            asyncio.run(scheduled[0])
+
+        mock_set.assert_awaited_once_with(5, "test")
         self.assertEqual(result["status"], "setting")
 
     def test_activate_body_double_clamps(self):
-        from adhd_os.tools.common import activate_body_double
-        result = activate_body_double.func("task", 0)
+        from adhd_os.tools import common
+
+        scheduled, capture = self._capture_background_task()
+        with patch.object(common, "_fire_and_forget", side_effect=capture), \
+             patch.object(common.BODY_DOUBLE, "start_session", AsyncMock()) as mock_start:
+            result = common.activate_body_double.func("task", 0)
+            asyncio.run(scheduled[0])
+
+        mock_start.assert_awaited_once_with("task", 5, 5)
         self.assertEqual(result["status"], "activating")
 
 
@@ -544,18 +582,28 @@ class TestHealthEndpoint(unittest.TestCase):
     """Tests for the /health dashboard endpoint."""
 
     def test_health_returns_ok(self):
-        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        tmp.close()
-        try:
-            from fastapi.testclient import TestClient
-            with patch("adhd_os.dashboard.backend.DB_PATH", tmp.name):
-                from adhd_os.dashboard.backend import app
-                client = TestClient(app)
+        from fastapi.testclient import TestClient
+        from adhd_os.dashboard import backend
+
+        with patch.object(backend.RUNTIME, "startup", AsyncMock()), \
+             patch.object(backend.RUNTIME, "health_check", AsyncMock()):
+            with TestClient(backend.app) as client:
                 resp = client.get("/health")
-                self.assertEqual(resp.status_code, 200)
-                self.assertEqual(resp.json()["status"], "ok")
-        finally:
-            os.unlink(tmp.name)
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "ok")
+
+    def test_health_returns_503_when_runtime_check_fails(self):
+        from fastapi.testclient import TestClient
+        from adhd_os.dashboard import backend
+
+        with patch.object(backend.RUNTIME, "startup", AsyncMock()), \
+             patch.object(backend.RUNTIME, "health_check", AsyncMock(side_effect=RuntimeError("db offline"))):
+            with TestClient(backend.app) as client:
+                resp = client.get("/health")
+
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("Database unavailable", resp.json()["detail"])
 
 
 if __name__ == "__main__":

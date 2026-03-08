@@ -6,7 +6,7 @@ from adhd_os.tools.common import get_user_state, safe_list_dir, safe_read_file
 
 reflector_agent = LlmAgent(
     name="reflector_agent",
-    model=LiteLlm(model=MODELS["reflector_agent"]),  # High-reasoning model (e.g., Claude 3.5 Sonnet)
+    model=LiteLlm(model=MODELS["reflector_agent"]),  # Configured in config.py; currently Gemini 3 Flash Preview
     
     description="""
     A compassionate but rigorous critic. Reviews plans and code for potential pitfalls.
